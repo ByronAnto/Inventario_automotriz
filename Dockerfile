@@ -30,7 +30,7 @@ COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copiar entrypoint que inyecta env vars en runtime
 COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh && apk add --no-cache curl
 
 # Copiar el build de Flutter Web
 COPY --from=build /app/build/web /usr/share/nginx/html
@@ -39,7 +39,7 @@ COPY --from=build /app/build/web /usr/share/nginx/html
 EXPOSE 80
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-  CMD wget -qO- http://localhost/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost/ || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
