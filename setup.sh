@@ -13,6 +13,8 @@
 ###############################################################################
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -195,9 +197,9 @@ echo -e "${YELLOW}⏳ Esperando que los servicios estén saludables...${NC}"
 sleep 10
 
 # ─── 5b. Cargar esquema y crear usuario admin (si no existe) ─────────
-# Verificar si el esquema ya fue cargado (tabla 'categorias' existe como indicador)
+# Verificar si el esquema ya fue cargado (tabla 'tipos_vehiculo' como indicador)
 SCHEMA_LOADED=$(docker exec autopartes-db psql -U supabase_admin -d postgres -tAc \
-    "SELECT count(*) FROM information_schema.tables WHERE table_name='categorias';" 2>/dev/null || echo "0")
+    "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='tipos_vehiculo';" 2>/dev/null || echo "0")
 
 if [[ "$SCHEMA_LOADED" == "0" || "$FIRST_RUN" == "true" ]]; then
     echo ""
