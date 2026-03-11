@@ -188,13 +188,13 @@ echo ""
 docker compose build web-app
 
 echo ""
-echo -e "${YELLOW}⏳ Levantando todos los servicios...${NC}"
+echo -e "${YELLOW}⏳ Levantando todos los servicios (force-recreate)...${NC}"
 
-docker compose up -d
+docker compose up -d --force-recreate
 
 echo ""
 echo -e "${YELLOW}⏳ Esperando que los servicios estén saludables...${NC}"
-sleep 10
+sleep 15
 
 # ─── 5b. Cargar esquema y crear usuario admin (si no existe) ─────────
 # Verificar si el esquema ya fue cargado (tabla 'tipos_vehiculo' como indicador)
