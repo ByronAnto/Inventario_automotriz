@@ -133,55 +133,24 @@ set_env_var() {
     fi
 }
 
-# ─── 3b. Generar secretos automáticamente (solo primera vez) ──────────
-base64url_encode() { base64 -w0 | tr '+/' '-_' | tr -d '='; }
+# ─── 3b. Verificar secretos ──────────────────────────────────────────
+# IMPORTANTE: Los tokens JWT en .env.example ya coinciden con docker/kong.yml.
+# NO se generan tokens nuevos porque kong.yml usa valores hardcoded.
+# Si necesitas tokens nuevos, regenera TODO: JWT_SECRET + tokens + kong.yml.
 
-generate_jwt() {
-    local secret="$1" role="$2"
-    local header='{"alg":"HS256","typ":"JWT"}'
-    local payload="{\"role\":\"${role}\",\"iss\":\"supabase\",\"iat\":1700000000,\"exp\":2000000000}"
-    local h p sig
-    h=$(echo -n "$header" | base64url_encode)
-    p=$(echo -n "$payload" | base64url_encode)
-    sig=$(echo -n "${h}.${p}" | openssl dgst -sha256 -hmac "$secret" -binary | base64url_encode)
-    echo "${h}.${p}.${sig}"
-}
+echo -e "${YELLOW}⏳ Verificando secretos...${NC}"
 
-if [[ "$FIRST_RUN" == "true" ]] || grep -q "PEGAR_AQUI" "$ENV_FILE" 2>/dev/null; then
-    echo -e "${YELLOW}⏳ Generando secretos automáticamente...${NC}"
+# Validar que los tokens JWT estén presentes (no vacíos)
+CURRENT_ANON=$(grep '^ANON_KEY=' "$ENV_FILE" | cut -d= -f2-)
+CURRENT_SERVICE=$(grep '^SERVICE_ROLE_KEY=' "$ENV_FILE" | cut -d= -f2-)
+CURRENT_JWT=$(grep '^JWT_SECRET=' "$ENV_FILE" | cut -d= -f2-)
 
-    # Generar JWT_SECRET aleatorio si es placeholder
-    CURRENT_JWT=$(grep '^JWT_SECRET=' "$ENV_FILE" | cut -d= -f2-)
-    if [[ "$CURRENT_JWT" == *"cambiar"* || -z "$CURRENT_JWT" ]]; then
-        NEW_JWT_SECRET=$(openssl rand -base64 48 | tr -d '/+=' | head -c 64)
-        set_env_var "JWT_SECRET" "$NEW_JWT_SECRET"
-    else
-        NEW_JWT_SECRET="$CURRENT_JWT"
-    fi
-
-    # Generar ANON_KEY y SERVICE_ROLE_KEY
-    if grep -q "PEGAR_AQUI" "$ENV_FILE" 2>/dev/null; then
-        ANON=$(generate_jwt "$NEW_JWT_SECRET" "anon")
-        SERVICE=$(generate_jwt "$NEW_JWT_SECRET" "service_role")
-        set_env_var "ANON_KEY" "$ANON"
-        set_env_var "SERVICE_ROLE_KEY" "$SERVICE"
-        echo -e "${GREEN}✓ Tokens JWT generados automáticamente${NC}"
-    fi
-
-    # Generar POSTGRES_PASSWORD aleatoria si es placeholder
-    CURRENT_PG=$(grep '^POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
-    if [[ "$CURRENT_PG" == *"Cambiar"* || -z "$CURRENT_PG" ]]; then
-        set_env_var "POSTGRES_PASSWORD" "$(openssl rand -base64 24 | tr -d '/+=')"
-    fi
-
-    # Generar PG_META_CRYPTO_KEY aleatoria si es placeholder
-    CURRENT_CRYPTO=$(grep '^PG_META_CRYPTO_KEY=' "$ENV_FILE" | cut -d= -f2-)
-    if [[ "$CURRENT_CRYPTO" == *"cambiar"* || -z "$CURRENT_CRYPTO" ]]; then
-        set_env_var "PG_META_CRYPTO_KEY" "$(openssl rand -base64 32 | tr -d '/+=')"
-    fi
-
-    echo -e "${GREEN}✓ Secretos configurados${NC}"
+if [[ -z "$CURRENT_ANON" || -z "$CURRENT_SERVICE" || -z "$CURRENT_JWT" ]]; then
+    echo -e "${RED}✗ Faltan tokens JWT en .env — verifica que .env.example esté completo${NC}"
+    exit 1
 fi
+
+echo -e "${GREEN}✓ Tokens JWT verificados (coinciden con kong.yml)${NC}"
 
 echo -e "${YELLOW}⏳ Actualizando URLs en .env para ${PUBLIC_HOST}...${NC}"
 

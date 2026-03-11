@@ -1,3 +1,5 @@
+# JWT tokens de desarrollo (coinciden con docker/kong.yml)
+# Son valores conocidos/públicos — NO son secretos de producción
 docker/kong.yml:jwt:13
 docker/kong.yml:jwt:16
 lib/config/supabase_config.dart:jwt:24
@@ -7,3 +9,7 @@ README.md:generic-api-key:216
 README.md:generic-api-key:242
 README.md:generic-api-key:243
 init-schema.sh:curl-auth-header:47
+.env.example:jwt:22
+.env.example:jwt:23
+.env.example:generic-api-key:22
+.env.example:generic-api-key:23
