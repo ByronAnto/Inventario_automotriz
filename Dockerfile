@@ -17,20 +17,20 @@ COPY lib/ lib/
 COPY web/ web/
 COPY analysis_options.yaml ./
 
-# Argumentos de build (se pasan desde docker-compose)
-ARG SUPABASE_URL=http://localhost:8000
-ARG SUPABASE_ANON_KEY=
-
-# Compilar Flutter Web en modo release
+# Compilar Flutter Web con PLACEHOLDERS (se reemplazan en runtime)
 RUN flutter build web --release \
-    --dart-define=SUPABASE_URL=${SUPABASE_URL} \
-    --dart-define=SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    --dart-define=SUPABASE_URL=__SUPABASE_URL_PLACEHOLDER__ \
+    --dart-define=SUPABASE_ANON_KEY=__SUPABASE_ANON_KEY_PLACEHOLDER__
 
 # ── Etapa 2: Servir con Nginx ──
 FROM nginx:1.27-alpine
 
 # Copiar configuración personalizada de Nginx
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copiar entrypoint que inyecta env vars en runtime
+COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Copiar el build de Flutter Web
 COPY --from=build /app/build/web /usr/share/nginx/html
@@ -41,3 +41,5 @@ EXPOSE 80
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD wget -qO- http://localhost/ || exit 1
+
+ENTRYPOINT ["/docker-entrypoint.sh"]

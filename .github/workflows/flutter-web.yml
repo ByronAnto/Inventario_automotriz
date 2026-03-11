@@ -71,9 +71,6 @@ jobs:
           tags: |
             ghcr.io/${{ steps.lower.outputs.owner }}/autopartes-web:latest
             ghcr.io/${{ steps.lower.outputs.owner }}/autopartes-web:${{ github.sha }}
-          build-args: |
-            SUPABASE_URL=${{ vars.SUPABASE_URL || 'http://localhost:8000' }}
-            SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

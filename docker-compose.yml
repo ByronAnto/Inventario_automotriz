@@ -272,14 +272,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        SUPABASE_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
-        SUPABASE_ANON_KEY: ${ANON_KEY}
     image: autopartes-web:latest
     container_name: autopartes-web
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:80"
+    environment:
+      SUPABASE_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
     depends_on:
       supabase-kong:
         condition: service_started
