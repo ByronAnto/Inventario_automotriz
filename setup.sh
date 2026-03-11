@@ -194,6 +194,28 @@ echo ""
 echo -e "${YELLOW}⏳ Esperando que los servicios estén saludables...${NC}"
 sleep 10
 
+# ─── 5b. Cargar esquema y crear usuario admin (si no existe) ─────────
+# Verificar si el esquema ya fue cargado (tabla 'categorias' existe como indicador)
+SCHEMA_LOADED=$(docker exec autopartes-db psql -U supabase_admin -d postgres -tAc \
+    "SELECT count(*) FROM information_schema.tables WHERE table_name='categorias';" 2>/dev/null || echo "0")
+
+if [[ "$SCHEMA_LOADED" == "0" || "$FIRST_RUN" == "true" ]]; then
+    echo ""
+    echo -e "${YELLOW}⏳ Cargando esquema SQL y creando usuario admin...${NC}"
+    bash "${SCRIPT_DIR}/init-schema.sh"
+    echo ""
+else
+    echo -e "${GREEN}✓ Esquema ya cargado, verificando usuario admin...${NC}"
+    # Verificar si el admin existe, si no ejecutar init-schema para crearlo
+    ADMIN_EXISTS=$(docker exec autopartes-db psql -U supabase_admin -d postgres -tAc \
+        "SELECT count(*) FROM auth.users WHERE email='admin@autopartes.com';" 2>/dev/null || echo "0")
+    if [[ "$ADMIN_EXISTS" == "0" ]]; then
+        echo -e "${YELLOW}⏳ Admin no encontrado, ejecutando init-schema...${NC}"
+        bash "${SCRIPT_DIR}/init-schema.sh"
+        echo ""
+    fi
+fi
+
 # ─── 6. Verificar servicios ──────────────────────────────────────────
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
