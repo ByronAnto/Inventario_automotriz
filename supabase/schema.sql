@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================
 -- 1. PERFILES (vinculado a auth.users)
 -- ============================================
-CREATE TABLE perfiles (
+CREATE TABLE IF NOT EXISTS perfiles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   nombre TEXT NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE perfiles (
 -- ============================================
 -- 2. TIPOS DE VEHÍCULO
 -- ============================================
-CREATE TABLE tipos_vehiculo (
+CREATE TABLE IF NOT EXISTS tipos_vehiculo (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   nombre TEXT NOT NULL UNIQUE,
   descripcion TEXT,
@@ -36,7 +36,7 @@ CREATE TABLE tipos_vehiculo (
 -- ============================================
 -- 3. CATÁLOGO DE PARTES (catálogo maestro)
 -- ============================================
-CREATE TABLE catalogo_partes (
+CREATE TABLE IF NOT EXISTS catalogo_partes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   nombre TEXT NOT NULL,
   categoria TEXT NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE catalogo_partes (
 -- ============================================
 -- 4. PLANTILLA TIPO VEHÍCULO (partes por tipo)
 -- ============================================
-CREATE TABLE plantilla_tipo_vehiculo (
+CREATE TABLE IF NOT EXISTS plantilla_tipo_vehiculo (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tipo_vehiculo_id UUID NOT NULL REFERENCES tipos_vehiculo(id) ON DELETE CASCADE,
   parte_id UUID NOT NULL REFERENCES catalogo_partes(id) ON DELETE CASCADE,
@@ -59,7 +59,7 @@ CREATE TABLE plantilla_tipo_vehiculo (
 -- ============================================
 -- 5. MARCAS
 -- ============================================
-CREATE TABLE marcas (
+CREATE TABLE IF NOT EXISTS marcas (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   nombre TEXT NOT NULL UNIQUE,
   activo BOOLEAN NOT NULL DEFAULT true
@@ -68,7 +68,7 @@ CREATE TABLE marcas (
 -- ============================================
 -- 6. MODELOS
 -- ============================================
-CREATE TABLE modelos (
+CREATE TABLE IF NOT EXISTS modelos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   marca_id UUID NOT NULL REFERENCES marcas(id) ON DELETE CASCADE,
   nombre TEXT NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE modelos (
 -- ============================================
 -- 7. UBICACIONES
 -- ============================================
-CREATE TABLE ubicaciones (
+CREATE TABLE IF NOT EXISTS ubicaciones (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   nombre TEXT NOT NULL UNIQUE,
   direccion TEXT,
@@ -90,7 +90,7 @@ CREATE TABLE ubicaciones (
 -- ============================================
 -- 8. VEHÍCULOS
 -- ============================================
-CREATE TABLE vehiculos (
+CREATE TABLE IF NOT EXISTS vehiculos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   marca_id UUID NOT NULL REFERENCES marcas(id),
   modelo_id UUID NOT NULL REFERENCES modelos(id),
@@ -115,7 +115,7 @@ CREATE TABLE vehiculos (
 -- ============================================
 -- 9. REPUESTOS (inventario de partes)
 -- ============================================
-CREATE TABLE repuestos (
+CREATE TABLE IF NOT EXISTS repuestos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   vehiculo_id UUID REFERENCES vehiculos(id) ON DELETE SET NULL,
   catalogo_parte_id UUID NOT NULL REFERENCES catalogo_partes(id),
@@ -133,7 +133,7 @@ CREATE TABLE repuestos (
 -- ============================================
 -- 10. VENTAS
 -- ============================================
-CREATE TABLE ventas (
+CREATE TABLE IF NOT EXISTS ventas (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   fecha TIMESTAMPTZ NOT NULL DEFAULT now(),
   vendedor_id UUID NOT NULL REFERENCES perfiles(id),
@@ -148,7 +148,7 @@ CREATE TABLE ventas (
 -- ============================================
 -- 11. DETALLE DE VENTA
 -- ============================================
-CREATE TABLE venta_detalle (
+CREATE TABLE IF NOT EXISTS venta_detalle (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   venta_id UUID NOT NULL REFERENCES ventas(id) ON DELETE CASCADE,
   repuesto_id UUID NOT NULL REFERENCES repuestos(id),
@@ -158,7 +158,7 @@ CREATE TABLE venta_detalle (
 -- ============================================
 -- 12. MOVIMIENTOS
 -- ============================================
-CREATE TABLE movimientos (
+CREATE TABLE IF NOT EXISTS movimientos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   repuesto_id UUID NOT NULL REFERENCES repuestos(id),
   tipo TEXT NOT NULL CHECK (tipo IN ('ingreso_vehiculo', 'ingreso_externo', 'venta', 'intercambio', 'traslado', 'descarte')),
@@ -175,7 +175,7 @@ CREATE TABLE movimientos (
 -- ============================================
 -- 13. INTERCAMBIOS
 -- ============================================
-CREATE TABLE intercambios (
+CREATE TABLE IF NOT EXISTS intercambios (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   movimiento_salida_id UUID NOT NULL REFERENCES movimientos(id),
   movimiento_entrada_id UUID NOT NULL REFERENCES movimientos(id),
@@ -186,35 +186,38 @@ CREATE TABLE intercambios (
 -- Agregar FK diferida de movimientos → intercambios
 -- (se crea la tabla intercambios después de movimientos,
 --  así que eliminamos la FK inline y la agregamos así)
-ALTER TABLE movimientos DROP CONSTRAINT IF EXISTS movimientos_intercambio_id_fkey;
-ALTER TABLE movimientos ADD CONSTRAINT movimientos_intercambio_id_fkey
-  FOREIGN KEY (intercambio_id) REFERENCES intercambios(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+DO $$ BEGIN
+  ALTER TABLE movimientos DROP CONSTRAINT IF EXISTS movimientos_intercambio_id_fkey;
+  ALTER TABLE movimientos ADD CONSTRAINT movimientos_intercambio_id_fkey
+    FOREIGN KEY (intercambio_id) REFERENCES intercambios(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================
 -- ÍNDICES
 -- ============================================
-CREATE INDEX idx_perfiles_user_id ON perfiles(user_id);
-CREATE INDEX idx_perfiles_rol ON perfiles(rol);
-CREATE INDEX idx_modelos_marca_id ON modelos(marca_id);
-CREATE INDEX idx_plantilla_tipo_vehiculo_id ON plantilla_tipo_vehiculo(tipo_vehiculo_id);
-CREATE INDEX idx_vehiculos_marca_id ON vehiculos(marca_id);
-CREATE INDEX idx_vehiculos_modelo_id ON vehiculos(modelo_id);
-CREATE INDEX idx_vehiculos_tipo_vehiculo_id ON vehiculos(tipo_vehiculo_id);
-CREATE INDEX idx_vehiculos_ubicacion_id ON vehiculos(ubicacion_id);
-CREATE INDEX idx_vehiculos_estado ON vehiculos(estado);
-CREATE INDEX idx_repuestos_vehiculo_id ON repuestos(vehiculo_id);
-CREATE INDEX idx_repuestos_catalogo_parte_id ON repuestos(catalogo_parte_id);
-CREATE INDEX idx_repuestos_estado ON repuestos(estado);
-CREATE INDEX idx_repuestos_ubicacion_id ON repuestos(ubicacion_id);
-CREATE INDEX idx_repuestos_origen ON repuestos(origen);
-CREATE INDEX idx_ventas_vendedor_id ON ventas(vendedor_id);
-CREATE INDEX idx_ventas_fecha ON ventas(fecha);
-CREATE INDEX idx_venta_detalle_venta_id ON venta_detalle(venta_id);
-CREATE INDEX idx_venta_detalle_repuesto_id ON venta_detalle(repuesto_id);
-CREATE INDEX idx_movimientos_repuesto_id ON movimientos(repuesto_id);
-CREATE INDEX idx_movimientos_tipo ON movimientos(tipo);
-CREATE INDEX idx_movimientos_fecha ON movimientos(fecha);
-CREATE INDEX idx_movimientos_usuario_id ON movimientos(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_perfiles_user_id ON perfiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_perfiles_rol ON perfiles(rol);
+CREATE INDEX IF NOT EXISTS idx_modelos_marca_id ON modelos(marca_id);
+CREATE INDEX IF NOT EXISTS idx_plantilla_tipo_vehiculo_id ON plantilla_tipo_vehiculo(tipo_vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_marca_id ON vehiculos(marca_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_modelo_id ON vehiculos(modelo_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo_vehiculo_id ON vehiculos(tipo_vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_ubicacion_id ON vehiculos(ubicacion_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_estado ON vehiculos(estado);
+CREATE INDEX IF NOT EXISTS idx_repuestos_vehiculo_id ON repuestos(vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_repuestos_catalogo_parte_id ON repuestos(catalogo_parte_id);
+CREATE INDEX IF NOT EXISTS idx_repuestos_estado ON repuestos(estado);
+CREATE INDEX IF NOT EXISTS idx_repuestos_ubicacion_id ON repuestos(ubicacion_id);
+CREATE INDEX IF NOT EXISTS idx_repuestos_origen ON repuestos(origen);
+CREATE INDEX IF NOT EXISTS idx_ventas_vendedor_id ON ventas(vendedor_id);
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
+CREATE INDEX IF NOT EXISTS idx_venta_detalle_venta_id ON venta_detalle(venta_id);
+CREATE INDEX IF NOT EXISTS idx_venta_detalle_repuesto_id ON venta_detalle(repuesto_id);
+CREATE INDEX IF NOT EXISTS idx_movimientos_repuesto_id ON movimientos(repuesto_id);
+CREATE INDEX IF NOT EXISTS idx_movimientos_tipo ON movimientos(tipo);
+CREATE INDEX IF NOT EXISTS idx_movimientos_fecha ON movimientos(fecha);
+CREATE INDEX IF NOT EXISTS idx_movimientos_usuario_id ON movimientos(usuario_id);
 
 -- ============================================
 -- ROW LEVEL SECURITY (RLS)
@@ -249,78 +252,120 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 -- ---- PERFILES ----
 -- Los usuarios ven su propio perfil; admins ven todos
+DROP POLICY IF EXISTS "perfiles_select" ON perfiles;
 CREATE POLICY "perfiles_select" ON perfiles FOR SELECT
   USING (user_id = auth.uid() OR get_user_role() = 'administrador');
 
+DROP POLICY IF EXISTS "perfiles_insert" ON perfiles;
 CREATE POLICY "perfiles_insert" ON perfiles FOR INSERT
   WITH CHECK (get_user_role() = 'administrador' OR user_id = auth.uid());
 
+DROP POLICY IF EXISTS "perfiles_update" ON perfiles;
 CREATE POLICY "perfiles_update" ON perfiles FOR UPDATE
   USING (user_id = auth.uid() OR get_user_role() = 'administrador');
 
 -- ---- CATÁLOGOS (lectura para todos, escritura solo admin) ----
 -- tipos_vehiculo
+DROP POLICY IF EXISTS "tipos_vehiculo_select" ON tipos_vehiculo;
 CREATE POLICY "tipos_vehiculo_select" ON tipos_vehiculo FOR SELECT USING (true);
+DROP POLICY IF EXISTS "tipos_vehiculo_insert" ON tipos_vehiculo;
 CREATE POLICY "tipos_vehiculo_insert" ON tipos_vehiculo FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "tipos_vehiculo_update" ON tipos_vehiculo;
 CREATE POLICY "tipos_vehiculo_update" ON tipos_vehiculo FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "tipos_vehiculo_delete" ON tipos_vehiculo;
 CREATE POLICY "tipos_vehiculo_delete" ON tipos_vehiculo FOR DELETE USING (get_user_role() = 'administrador');
 
 -- catalogo_partes
+DROP POLICY IF EXISTS "catalogo_partes_select" ON catalogo_partes;
 CREATE POLICY "catalogo_partes_select" ON catalogo_partes FOR SELECT USING (true);
+DROP POLICY IF EXISTS "catalogo_partes_insert" ON catalogo_partes;
 CREATE POLICY "catalogo_partes_insert" ON catalogo_partes FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "catalogo_partes_update" ON catalogo_partes;
 CREATE POLICY "catalogo_partes_update" ON catalogo_partes FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "catalogo_partes_delete" ON catalogo_partes;
 CREATE POLICY "catalogo_partes_delete" ON catalogo_partes FOR DELETE USING (get_user_role() = 'administrador');
 
 -- plantilla_tipo_vehiculo
+DROP POLICY IF EXISTS "plantilla_select" ON plantilla_tipo_vehiculo;
 CREATE POLICY "plantilla_select" ON plantilla_tipo_vehiculo FOR SELECT USING (true);
+DROP POLICY IF EXISTS "plantilla_insert" ON plantilla_tipo_vehiculo;
 CREATE POLICY "plantilla_insert" ON plantilla_tipo_vehiculo FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "plantilla_update" ON plantilla_tipo_vehiculo;
 CREATE POLICY "plantilla_update" ON plantilla_tipo_vehiculo FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "plantilla_delete" ON plantilla_tipo_vehiculo;
 CREATE POLICY "plantilla_delete" ON plantilla_tipo_vehiculo FOR DELETE USING (get_user_role() = 'administrador');
 
 -- marcas
+DROP POLICY IF EXISTS "marcas_select" ON marcas;
 CREATE POLICY "marcas_select" ON marcas FOR SELECT USING (true);
+DROP POLICY IF EXISTS "marcas_insert" ON marcas;
 CREATE POLICY "marcas_insert" ON marcas FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "marcas_update" ON marcas;
 CREATE POLICY "marcas_update" ON marcas FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "marcas_delete" ON marcas;
 CREATE POLICY "marcas_delete" ON marcas FOR DELETE USING (get_user_role() = 'administrador');
 
 -- modelos
+DROP POLICY IF EXISTS "modelos_select" ON modelos;
 CREATE POLICY "modelos_select" ON modelos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "modelos_insert" ON modelos;
 CREATE POLICY "modelos_insert" ON modelos FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "modelos_update" ON modelos;
 CREATE POLICY "modelos_update" ON modelos FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "modelos_delete" ON modelos;
 CREATE POLICY "modelos_delete" ON modelos FOR DELETE USING (get_user_role() = 'administrador');
 
 -- ubicaciones
+DROP POLICY IF EXISTS "ubicaciones_select" ON ubicaciones;
 CREATE POLICY "ubicaciones_select" ON ubicaciones FOR SELECT USING (true);
+DROP POLICY IF EXISTS "ubicaciones_insert" ON ubicaciones;
 CREATE POLICY "ubicaciones_insert" ON ubicaciones FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "ubicaciones_update" ON ubicaciones;
 CREATE POLICY "ubicaciones_update" ON ubicaciones FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "ubicaciones_delete" ON ubicaciones;
 CREATE POLICY "ubicaciones_delete" ON ubicaciones FOR DELETE USING (get_user_role() = 'administrador');
 
 -- ---- DATOS OPERATIVOS (lectura todos, escritura admin + vendedor) ----
 -- vehiculos
+DROP POLICY IF EXISTS "vehiculos_select" ON vehiculos;
 CREATE POLICY "vehiculos_select" ON vehiculos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "vehiculos_insert" ON vehiculos;
 CREATE POLICY "vehiculos_insert" ON vehiculos FOR INSERT WITH CHECK (get_user_role() IN ('administrador', 'vendedor'));
+DROP POLICY IF EXISTS "vehiculos_update" ON vehiculos;
 CREATE POLICY "vehiculos_update" ON vehiculos FOR UPDATE USING (get_user_role() IN ('administrador', 'vendedor', 'mecanico'));
 
 -- repuestos
+DROP POLICY IF EXISTS "repuestos_select" ON repuestos;
 CREATE POLICY "repuestos_select" ON repuestos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "repuestos_insert" ON repuestos;
 CREATE POLICY "repuestos_insert" ON repuestos FOR INSERT WITH CHECK (get_user_role() IN ('administrador', 'vendedor', 'mecanico'));
+DROP POLICY IF EXISTS "repuestos_update" ON repuestos;
 CREATE POLICY "repuestos_update" ON repuestos FOR UPDATE USING (get_user_role() IN ('administrador', 'vendedor', 'mecanico'));
 
 -- ventas
+DROP POLICY IF EXISTS "ventas_select" ON ventas;
 CREATE POLICY "ventas_select" ON ventas FOR SELECT USING (true);
+DROP POLICY IF EXISTS "ventas_insert" ON ventas;
 CREATE POLICY "ventas_insert" ON ventas FOR INSERT WITH CHECK (get_user_role() IN ('administrador', 'vendedor'));
+DROP POLICY IF EXISTS "ventas_update" ON ventas;
 CREATE POLICY "ventas_update" ON ventas FOR UPDATE USING (get_user_role() = 'administrador');
 
 -- venta_detalle
+DROP POLICY IF EXISTS "venta_detalle_select" ON venta_detalle;
 CREATE POLICY "venta_detalle_select" ON venta_detalle FOR SELECT USING (true);
+DROP POLICY IF EXISTS "venta_detalle_insert" ON venta_detalle;
 CREATE POLICY "venta_detalle_insert" ON venta_detalle FOR INSERT WITH CHECK (get_user_role() IN ('administrador', 'vendedor'));
 
 -- movimientos
+DROP POLICY IF EXISTS "movimientos_select" ON movimientos;
 CREATE POLICY "movimientos_select" ON movimientos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "movimientos_insert" ON movimientos;
 CREATE POLICY "movimientos_insert" ON movimientos FOR INSERT WITH CHECK (get_user_role() IN ('administrador', 'vendedor', 'mecanico'));
 
 -- intercambios
+DROP POLICY IF EXISTS "intercambios_select" ON intercambios;
 CREATE POLICY "intercambios_select" ON intercambios FOR SELECT USING (true);
+DROP POLICY IF EXISTS "intercambios_insert" ON intercambios;
 CREATE POLICY "intercambios_insert" ON intercambios FOR INSERT WITH CHECK (get_user_role() IN ('administrador', 'vendedor'));
 
 -- ============================================
@@ -334,7 +379,8 @@ INSERT INTO tipos_vehiculo (nombre, descripcion, icono) VALUES
   ('Van', 'Vehículo tipo furgoneta', 'airport_shuttle'),
   ('Coupé', 'Vehículo deportivo de 2 puertas', 'sports_car'),
   ('Camión', 'Vehículo de carga pesada', 'local_shipping'),
-  ('Motocicleta', 'Vehículo de 2 ruedas', 'two_wheeler');
+  ('Motocicleta', 'Vehículo de 2 ruedas', 'two_wheeler')
+ON CONFLICT (nombre) DO NOTHING;
 
 -- ============================================
 -- SEED DATA: MARCAS Y MODELOS
@@ -342,7 +388,8 @@ INSERT INTO tipos_vehiculo (nombre, descripcion, icono) VALUES
 INSERT INTO marcas (nombre) VALUES
   ('Toyota'), ('Honda'), ('Nissan'), ('Chevrolet'), ('Ford'),
   ('Volkswagen'), ('Hyundai'), ('Kia'), ('Mazda'), ('Suzuki'),
-  ('Mitsubishi'), ('Jeep'), ('Dodge'), ('BMW'), ('Mercedes-Benz');
+  ('Mitsubishi'), ('Jeep'), ('Dodge'), ('BMW'), ('Mercedes-Benz')
+ON CONFLICT (nombre) DO NOTHING;
 
 -- Toyota
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -352,7 +399,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Toyota'), 'Camry'),
   ((SELECT id FROM marcas WHERE nombre = 'Toyota'), 'Yaris'),
   ((SELECT id FROM marcas WHERE nombre = 'Toyota'), 'Prado'),
-  ((SELECT id FROM marcas WHERE nombre = 'Toyota'), 'Fortuner');
+  ((SELECT id FROM marcas WHERE nombre = 'Toyota'), 'Fortuner')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Honda
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -360,7 +408,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Honda'), 'CR-V'),
   ((SELECT id FROM marcas WHERE nombre = 'Honda'), 'Accord'),
   ((SELECT id FROM marcas WHERE nombre = 'Honda'), 'HR-V'),
-  ((SELECT id FROM marcas WHERE nombre = 'Honda'), 'Fit');
+  ((SELECT id FROM marcas WHERE nombre = 'Honda'), 'Fit')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Nissan
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -368,7 +417,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Nissan'), 'Versa'),
   ((SELECT id FROM marcas WHERE nombre = 'Nissan'), 'X-Trail'),
   ((SELECT id FROM marcas WHERE nombre = 'Nissan'), 'Frontier'),
-  ((SELECT id FROM marcas WHERE nombre = 'Nissan'), 'Kicks');
+  ((SELECT id FROM marcas WHERE nombre = 'Nissan'), 'Kicks')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Chevrolet
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -376,7 +426,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Chevrolet'), 'Cruze'),
   ((SELECT id FROM marcas WHERE nombre = 'Chevrolet'), 'Tracker'),
   ((SELECT id FROM marcas WHERE nombre = 'Chevrolet'), 'Onix'),
-  ((SELECT id FROM marcas WHERE nombre = 'Chevrolet'), 'Silverado');
+  ((SELECT id FROM marcas WHERE nombre = 'Chevrolet'), 'Silverado')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Ford
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -384,7 +435,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Ford'), 'Explorer'),
   ((SELECT id FROM marcas WHERE nombre = 'Ford'), 'EcoSport'),
   ((SELECT id FROM marcas WHERE nombre = 'Ford'), 'Escape'),
-  ((SELECT id FROM marcas WHERE nombre = 'Ford'), 'F-150');
+  ((SELECT id FROM marcas WHERE nombre = 'Ford'), 'F-150')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Volkswagen
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -392,7 +444,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Volkswagen'), 'Golf'),
   ((SELECT id FROM marcas WHERE nombre = 'Volkswagen'), 'Tiguan'),
   ((SELECT id FROM marcas WHERE nombre = 'Volkswagen'), 'Polo'),
-  ((SELECT id FROM marcas WHERE nombre = 'Volkswagen'), 'T-Cross');
+  ((SELECT id FROM marcas WHERE nombre = 'Volkswagen'), 'T-Cross')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Hyundai
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -400,7 +453,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Hyundai'), 'Accent'),
   ((SELECT id FROM marcas WHERE nombre = 'Hyundai'), 'Creta'),
   ((SELECT id FROM marcas WHERE nombre = 'Hyundai'), 'Santa Fe'),
-  ((SELECT id FROM marcas WHERE nombre = 'Hyundai'), 'Elantra');
+  ((SELECT id FROM marcas WHERE nombre = 'Hyundai'), 'Elantra')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Kia
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -408,7 +462,8 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Kia'), 'Rio'),
   ((SELECT id FROM marcas WHERE nombre = 'Kia'), 'Seltos'),
   ((SELECT id FROM marcas WHERE nombre = 'Kia'), 'Sorento'),
-  ((SELECT id FROM marcas WHERE nombre = 'Kia'), 'Cerato');
+  ((SELECT id FROM marcas WHERE nombre = 'Kia'), 'Cerato')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- Mazda
 INSERT INTO modelos (marca_id, nombre) VALUES
@@ -416,13 +471,15 @@ INSERT INTO modelos (marca_id, nombre) VALUES
   ((SELECT id FROM marcas WHERE nombre = 'Mazda'), 'CX-5'),
   ((SELECT id FROM marcas WHERE nombre = 'Mazda'), 'CX-30'),
   ((SELECT id FROM marcas WHERE nombre = 'Mazda'), 'Mazda 2'),
-  ((SELECT id FROM marcas WHERE nombre = 'Mazda'), 'CX-9');
+  ((SELECT id FROM marcas WHERE nombre = 'Mazda'), 'CX-9')
+ON CONFLICT (marca_id, nombre) DO NOTHING;
 
 -- ============================================
 -- SEED DATA: UBICACIÓN INICIAL
 -- ============================================
 INSERT INTO ubicaciones (nombre, direccion) VALUES
-  ('Bodega Principal', 'Dirección de la bodega principal');
+  ('Bodega Principal', 'Dirección de la bodega principal')
+ON CONFLICT (nombre) DO NOTHING;
 
 -- ============================================
 -- SEED DATA: CATÁLOGO DE PARTES (~190 partes)
@@ -457,7 +514,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Manija exterior delantera izquierda', 'Carrocería exterior', 22),
   ('Manija exterior delantera derecha', 'Carrocería exterior', 23),
   ('Manija exterior trasera izquierda', 'Carrocería exterior', 24),
-  ('Manija exterior trasera derecha', 'Carrocería exterior', 25);
+  ('Manija exterior trasera derecha', 'Carrocería exterior', 25)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== VIDRIOS Y ESPEJOS (14 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -474,7 +532,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Luna de espejo izquierdo', 'Vidrios y espejos', 11),
   ('Luna de espejo derecho', 'Vidrios y espejos', 12),
   ('Espejo retrovisor interior', 'Vidrios y espejos', 13),
-  ('Quemacocos / Techo solar', 'Vidrios y espejos', 14);
+  ('Quemacocos / Techo solar', 'Vidrios y espejos', 14)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== ILUMINACIÓN (22 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -499,7 +558,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Foco H1/H4/H7 izquierdo', 'Iluminación', 19),
   ('Foco H1/H4/H7 derecho', 'Iluminación', 20),
   ('Barra LED (si aplica)', 'Iluminación', 21),
-  ('Luz direccional lateral', 'Iluminación', 22);
+  ('Luz direccional lateral', 'Iluminación', 22)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== MOTOR Y MECÁNICA (28 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -530,7 +590,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Tapa de válvulas', 'Motor y mecánica', 25),
   ('Sensor de oxígeno', 'Motor y mecánica', 26),
   ('Catalizador', 'Motor y mecánica', 27),
-  ('Tubo de escape / Mofle', 'Motor y mecánica', 28);
+  ('Tubo de escape / Mofle', 'Motor y mecánica', 28)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== TRANSMISIÓN (14 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -547,7 +608,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Cables de clutch', 'Transmisión', 11),
   ('Transfer case (4x4)', 'Transmisión', 12),
   ('Soporte de transmisión', 'Transmisión', 13),
-  ('Soporte de motor', 'Transmisión', 14);
+  ('Soporte de motor', 'Transmisión', 14)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== SUSPENSIÓN Y DIRECCIÓN (20 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -570,7 +632,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Cremallera de dirección', 'Suspensión y dirección', 17),
   ('Bomba de dirección hidráulica', 'Suspensión y dirección', 18),
   ('Columna de dirección', 'Suspensión y dirección', 19),
-  ('Volante / Timón', 'Suspensión y dirección', 20);
+  ('Volante / Timón', 'Suspensión y dirección', 20)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== FRENOS (12 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -585,7 +648,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Bomba de freno (cilindro maestro)', 'Frenos', 9),
   ('Servofreno (booster)', 'Frenos', 10),
   ('Freno de mano / Palanca', 'Frenos', 11),
-  ('Líneas / Mangueras de freno', 'Frenos', 12);
+  ('Líneas / Mangueras de freno', 'Frenos', 12)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== INTERIOR (30 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -618,7 +682,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Cenicero / Porta objetos', 'Interior', 27),
   ('Tapa / Cubierta del motor interior', 'Interior', 28),
   ('Pedal de acelerador', 'Interior', 29),
-  ('Pedal de freno', 'Interior', 30);
+  ('Pedal de freno', 'Interior', 30)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== SISTEMA ELÉCTRICO (26 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -647,7 +712,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Velocímetro / Cluster de instrumentos', 'Sistema eléctrico', 23),
   ('Sensor ABS delantero', 'Sistema eléctrico', 24),
   ('Sensor ABS trasero', 'Sistema eléctrico', 25),
-  ('Módulo ABS', 'Sistema eléctrico', 26);
+  ('Módulo ABS', 'Sistema eléctrico', 26)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== RUEDAS (8 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -658,7 +724,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Llanta delantera izquierda', 'Ruedas', 5),
   ('Llanta delantera derecha', 'Ruedas', 6),
   ('Llanta trasera izquierda', 'Ruedas', 7),
-  ('Llanta trasera derecha', 'Ruedas', 8);
+  ('Llanta trasera derecha', 'Ruedas', 8)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ======== OTROS (11 partes) ========
 INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
@@ -672,7 +739,8 @@ INSERT INTO catalogo_partes (nombre, categoria, orden) VALUES
   ('Chapa de puerta delantera izquierda', 'Otros', 8),
   ('Chapa de puerta delantera derecha', 'Otros', 9),
   ('Chapa de cajuela', 'Otros', 10),
-  ('Chapa de encendido', 'Otros', 11);
+  ('Chapa de encendido', 'Otros', 11)
+ON CONFLICT (nombre, categoria) DO NOTHING;
 
 -- ============================================
 -- GENERACIÓN AUTOMÁTICA DE PLANTILLAS
@@ -684,7 +752,8 @@ INSERT INTO plantilla_tipo_vehiculo (tipo_vehiculo_id, parte_id, activo)
 SELECT tv.id, cp.id, true
 FROM tipos_vehiculo tv
 CROSS JOIN catalogo_partes cp
-WHERE cp.activo_por_defecto = true;
+WHERE cp.activo_por_defecto = true
+ON CONFLICT (tipo_vehiculo_id, parte_id) DO NOTHING;
 
 -- ============================================
 -- STORAGE: Bucket para fotos
