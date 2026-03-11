@@ -2,3 +2,7 @@ docker/kong.yml:jwt:13
 docker/kong.yml:jwt:16
 lib/config/supabase_config.dart:jwt:24
 docker-compose.yml:generic-api-key:132
+README.md:curl-auth-header:276
+README.md:generic-api-key:216
+README.md:generic-api-key:242
+README.md:generic-api-key:243
