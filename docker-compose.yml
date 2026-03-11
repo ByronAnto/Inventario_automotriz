@@ -1,0 +1,276 @@
+##############################################################
+# AutoPartes Inventory - Supabase Self-Hosted (Docker Compose)
+# Puertos configurados para evitar conflicto con tus DBs existentes
+#   PostgreSQL → 5434 (5432/5433 ocupados)
+#   Kong API   → 8000
+#   Studio     → 3100
+##############################################################
+
+services:
+  # ──────────────────────────────────────────────
+  # 1. PostgreSQL Database
+  # ──────────────────────────────────────────────
+  supabase-db:
+    image: supabase/postgres:15.8.1.085
+    container_name: autopartes-db
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: 3600
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - ./docker/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 2. Kong API Gateway
+  # ──────────────────────────────────────────────
+  supabase-kong:
+    image: kong:2.8.1
+    container_name: autopartes-kong
+    restart: unless-stopped
+    ports:
+      - "${KONG_HTTP_PORT:-8000}:8000/tcp"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+    volumes:
+      - ./docker/kong.yml:/home/kong/kong.yml:ro
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 3. GoTrue - Auth Service
+  # ──────────────────────────────────────────────
+  supabase-auth:
+    image: supabase/gotrue:v2.186.0
+    container_name: autopartes-auth
+    restart: unless-stopped
+    ports:
+      - "${GOTRUE_PORT:-9999}:9999"
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_DISABLE_SIGNUP: ${GOTRUE_DISABLE_SIGNUP:-false}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${GOTRUE_EXTERNAL_EMAIL_ENABLED:-true}
+      GOTRUE_MAILER_AUTOCONFIRM: ${GOTRUE_MAILER_AUTOCONFIRM:-true}
+      GOTRUE_SMS_AUTOCONFIRM: ${GOTRUE_SMS_AUTOCONFIRM:-true}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 4. PostgREST - REST API
+  # ──────────────────────────────────────────────
+  supabase-rest:
+    image: postgrest/postgrest:v14.5
+    container_name: autopartes-rest
+    restart: unless-stopped
+    ports:
+      - "${REST_PORT:-3200}:3000"
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 5. Realtime - WebSocket
+  # ──────────────────────────────────────────────
+  supabase-realtime:
+    image: supabase/realtime:v2.76.5
+    container_name: autopartes-realtime
+    restart: unless-stopped
+    ports:
+      - "${REALTIME_PORT:-4000}:4000"
+    environment:
+      PORT: 4000
+      DB_HOST: supabase-db
+      DB_PORT: 5432
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-postgres}
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+      REPLICATION_MODE: RLS
+      REPLICATION_POLL_INTERVAL: 100
+      SECURE_CHANNELS: "true"
+      SLOT_NAME: supabase_realtime_rls
+      TEMPORARY_SLOT: "true"
+      MAX_REPLICATION_LAG_MB: 1000
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 6. Storage - File Storage
+  # ──────────────────────────────────────────────
+  supabase-storage:
+    image: supabase/storage-api:v1.37.8
+    container_name: autopartes-storage
+    restart: unless-stopped
+    ports:
+      - "${STORAGE_PORT:-5000}:5000"
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://supabase-rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://supabase-imgproxy:5001
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-rest:
+        condition: service_started
+      supabase-imgproxy:
+        condition: service_started
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 7. ImgProxy - Image transformation
+  # ──────────────────────────────────────────────
+  supabase-imgproxy:
+    image: darthsim/imgproxy:v3.30.1
+    container_name: autopartes-imgproxy
+    restart: unless-stopped
+    ports:
+      - "${IMGPROXY_PORT:-5001}:5001"
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: "true"
+    volumes:
+      - supabase-storage-data:/var/lib/storage:ro
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 8. Supabase Meta - Database management
+  # ──────────────────────────────────────────────
+  supabase-meta:
+    image: supabase/postgres-meta:v0.95.2
+    container_name: autopartes-meta
+    restart: unless-stopped
+    ports:
+      - "${META_PORT:-8090}:8080"
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: ${POSTGRES_DB:-postgres}
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-net
+
+  # ──────────────────────────────────────────────
+  # 9. Supabase Studio - Dashboard Web
+  # ──────────────────────────────────────────────
+  supabase-studio:
+    image: supabase/studio:2026.02.16-sha-26c615c
+    container_name: autopartes-studio
+    restart: unless-stopped
+    ports:
+      - "${STUDIO_PORT:-3100}:3000"
+    environment:
+      HOSTNAME: "::"
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: supabase-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+      DEFAULT_ORGANIZATION_NAME: ${STUDIO_DEFAULT_ORGANIZATION:-AutoPartes}
+      DEFAULT_PROJECT_NAME: ${STUDIO_DEFAULT_PROJECT:-Inventario}
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      LOGFLARE_API_KEY: ""
+      LOGFLARE_URL: ""
+      NEXT_PUBLIC_ENABLE_LOGS: "false"
+      NEXT_ANALYTICS_BACKEND_PROVIDER: ""
+      SNIPPETS_MANAGEMENT_FOLDER: /app/snippets
+      EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /app/edge-functions
+    volumes:
+      - ./docker/snippets:/app/snippets
+      - ./docker/edge-functions:/app/edge-functions
+    depends_on:
+      supabase-meta:
+        condition: service_started
+      supabase-kong:
+        condition: service_started
+    networks:
+      - supabase-net
+
+volumes:
+  supabase-db-data:
+    driver: local
+  supabase-storage-data:
+    driver: local
+
+networks:
+  supabase-net:
+    driver: bridge

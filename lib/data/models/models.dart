@@ -1,0 +1,9 @@
+export 'perfil.dart';
+export 'tipo_vehiculo.dart';
+export 'catalogo_parte.dart';
+export 'marca_modelo.dart';
+export 'ubicacion.dart';
+export 'vehiculo.dart';
+export 'repuesto.dart';
+export 'venta.dart';
+export 'movimiento.dart';
