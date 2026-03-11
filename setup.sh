@@ -25,23 +25,30 @@ echo -e "${CYAN}╚════════════════════�
 echo ""
 
 # ─── 1. Detectar IP pública ──────────────────────────────────────────
+is_valid_ip() {
+    [[ -n "$1" && "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
 detect_public_ip() {
     local ip=""
 
     # Oracle Cloud Instance Metadata (IMDS v2)
     ip=$(curl -s --connect-timeout 3 -H "Authorization: Bearer Oracle" \
         http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
-        | grep -oP '"publicIp"\s*:\s*"\K[^"]+' | head -1) && [[ -n "$ip" ]] && echo "$ip" && return
+        | grep -oP '"publicIp"\s*:\s*"\K[^"]+' | head -1)
+    is_valid_ip "$ip" && echo "$ip" && return
 
     # Oracle Cloud IMDS v1 (fallback)
     ip=$(curl -s --connect-timeout 3 \
         http://169.254.169.254/opc/v1/vnics/ 2>/dev/null \
-        | grep -oP '"publicIp"\s*:\s*"\K[^"]+' | head -1) && [[ -n "$ip" ]] && echo "$ip" && return
+        | grep -oP '"publicIp"\s*:\s*"\K[^"]+' | head -1)
+    is_valid_ip "$ip" && echo "$ip" && return
 
     # Azure Instance Metadata
     ip=$(curl -s --connect-timeout 3 -H "Metadata:true" \
         "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01&format=text" \
-        2>/dev/null) && [[ -n "$ip" && "$ip" != *"error"* ]] && echo "$ip" && return
+        2>/dev/null | tr -d '[:space:]')
+    is_valid_ip "$ip" && echo "$ip" && return
 
     # AWS Instance Metadata (IMDSv2)
     local token
@@ -51,22 +58,20 @@ detect_public_ip() {
     if [[ -n "$token" ]]; then
         ip=$(curl -s --connect-timeout 2 \
             -H "X-aws-ec2-metadata-token: $token" \
-            http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null)
-        [[ -n "$ip" && "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$ip" && return
+            http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null | tr -d '[:space:]')
+        is_valid_ip "$ip" && echo "$ip" && return
     fi
 
     # GCP Instance Metadata
     ip=$(curl -s --connect-timeout 3 -H "Metadata-Flavor: Google" \
         "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" \
-        2>/dev/null) && [[ -n "$ip" && "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$ip" && return
+        2>/dev/null | tr -d '[:space:]')
+    is_valid_ip "$ip" && echo "$ip" && return
 
     # Servicios externos (último recurso)
     for svc in "ifconfig.me" "api.ipify.org" "icanhazip.com" "ipecho.net/plain"; do
         ip=$(curl -s --connect-timeout 5 "$svc" 2>/dev/null | tr -d '[:space:]')
-        if [[ -n "$ip" && "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "$ip"
-            return
-        fi
+        is_valid_ip "$ip" && echo "$ip" && return
     done
 
     return 1
@@ -105,9 +110,11 @@ echo -e "${GREEN}✓ Docker y Docker Compose disponibles${NC}"
 # ─── 3. Crear/actualizar .env ─────────────────────────────────────────
 ENV_FILE=".env"
 
+FIRST_RUN=false
 if [[ ! -f "$ENV_FILE" ]]; then
     if [[ -f ".env.example" ]]; then
         cp .env.example "$ENV_FILE"
+        FIRST_RUN=true
         echo -e "${GREEN}✓ .env creado desde .env.example${NC}"
     else
         echo -e "${RED}✗ No se encontró .env ni .env.example${NC}"
@@ -125,6 +132,56 @@ set_env_var() {
         echo "${key}=${value}" >> "$ENV_FILE"
     fi
 }
+
+# ─── 3b. Generar secretos automáticamente (solo primera vez) ──────────
+base64url_encode() { base64 -w0 | tr '+/' '-_' | tr -d '='; }
+
+generate_jwt() {
+    local secret="$1" role="$2"
+    local header='{"alg":"HS256","typ":"JWT"}'
+    local payload="{\"role\":\"${role}\",\"iss\":\"supabase\",\"iat\":1700000000,\"exp\":2000000000}"
+    local h p sig
+    h=$(echo -n "$header" | base64url_encode)
+    p=$(echo -n "$payload" | base64url_encode)
+    sig=$(echo -n "${h}.${p}" | openssl dgst -sha256 -hmac "$secret" -binary | base64url_encode)
+    echo "${h}.${p}.${sig}"
+}
+
+if [[ "$FIRST_RUN" == "true" ]] || grep -q "PEGAR_AQUI" "$ENV_FILE" 2>/dev/null; then
+    echo -e "${YELLOW}⏳ Generando secretos automáticamente...${NC}"
+
+    # Generar JWT_SECRET aleatorio si es placeholder
+    CURRENT_JWT=$(grep '^JWT_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+    if [[ "$CURRENT_JWT" == *"cambiar"* || -z "$CURRENT_JWT" ]]; then
+        NEW_JWT_SECRET=$(openssl rand -base64 48 | tr -d '/+=' | head -c 64)
+        set_env_var "JWT_SECRET" "$NEW_JWT_SECRET"
+    else
+        NEW_JWT_SECRET="$CURRENT_JWT"
+    fi
+
+    # Generar ANON_KEY y SERVICE_ROLE_KEY
+    if grep -q "PEGAR_AQUI" "$ENV_FILE" 2>/dev/null; then
+        ANON=$(generate_jwt "$NEW_JWT_SECRET" "anon")
+        SERVICE=$(generate_jwt "$NEW_JWT_SECRET" "service_role")
+        set_env_var "ANON_KEY" "$ANON"
+        set_env_var "SERVICE_ROLE_KEY" "$SERVICE"
+        echo -e "${GREEN}✓ Tokens JWT generados automáticamente${NC}"
+    fi
+
+    # Generar POSTGRES_PASSWORD aleatoria si es placeholder
+    CURRENT_PG=$(grep '^POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    if [[ "$CURRENT_PG" == *"Cambiar"* || -z "$CURRENT_PG" ]]; then
+        set_env_var "POSTGRES_PASSWORD" "$(openssl rand -base64 24 | tr -d '/+=')"
+    fi
+
+    # Generar PG_META_CRYPTO_KEY aleatoria si es placeholder
+    CURRENT_CRYPTO=$(grep '^PG_META_CRYPTO_KEY=' "$ENV_FILE" | cut -d= -f2-)
+    if [[ "$CURRENT_CRYPTO" == *"cambiar"* || -z "$CURRENT_CRYPTO" ]]; then
+        set_env_var "PG_META_CRYPTO_KEY" "$(openssl rand -base64 32 | tr -d '/+=')"
+    fi
+
+    echo -e "${GREEN}✓ Secretos configurados${NC}"
+fi
 
 echo -e "${YELLOW}⏳ Actualizando URLs en .env para ${PUBLIC_HOST}...${NC}"
 
