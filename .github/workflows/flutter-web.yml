@@ -74,6 +74,28 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Deploy en Oracle Cloud VM (self-hosted runner ARM64)
+  deploy:
+    name: Deploy to Oracle Cloud
+    needs: build
+    runs-on: [self-hosted, Linux, ARM64]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync to deployment directory
+        run: |
+          DEPLOY_DIR="$HOME/autopartes"
+          mkdir -p "$DEPLOY_DIR"
+          rsync -a --exclude='.env' --exclude='volumes/' --delete ./ "$DEPLOY_DIR/"
+
+      - name: Deploy application
+        run: |
+          cd "$HOME/autopartes"
+          chmod +x setup.sh init-schema.sh
+          ./setup.sh
+
   # Build APK
   build-apk:
     name: Build Android APK

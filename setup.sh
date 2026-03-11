@@ -139,12 +139,12 @@ echo -e "${GREEN}✓ URLs actualizadas → http://${PUBLIC_HOST}:8000${NC}"
 echo ""
 echo -e "${YELLOW}📋 Puertos necesarios (abrir en firewall/Security List):${NC}"
 echo -e "   ${CYAN}8000${NC}  — API Gateway (Kong) — Backend"
-echo -e "   ${CYAN}3000${NC}  — Frontend Web (Nginx/Flutter)"
+echo -e "   ${CYAN}3001${NC}  — Frontend Web (Nginx/Flutter)"
 echo -e "   ${CYAN}3100${NC}  — Studio (panel admin DB) — opcional"
 echo ""
 
 # Verificar si los puertos están abiertos localmente
-for port in 8000 3000; do
+for port in 8000 3001; do
     if ss -tlnp 2>/dev/null | grep -q ":${port} " || \
        netstat -tlnp 2>/dev/null | grep -q ":${port} "; then
         echo -e "   ${YELLOW}⚠ Puerto ${port} ya está en uso${NC}"
@@ -180,7 +180,7 @@ echo ""
 
 # Test de conectividad
 API_OK=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000/rest/v1/" -H "apikey: $(grep '^ANON_KEY=' .env | cut -d= -f2)" 2>/dev/null || echo "000")
-WEB_OK=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:3000" 2>/dev/null || echo "000")
+WEB_OK=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT:-3001}" 2>/dev/null || echo "000")
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
 echo -e "${CYAN}  Tests de conectividad${NC}"
@@ -204,7 +204,7 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║   ✅ Despliegue completado                          ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${NC}                                                      ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  🌐 Frontend Web:  ${CYAN}http://${PUBLIC_HOST}:3000${NC}"
+echo -e "${GREEN}║${NC}  🌐 Frontend Web:  ${CYAN}http://${PUBLIC_HOST}:3001${NC}"
 echo -e "${GREEN}║${NC}  🔌 API Backend:   ${CYAN}http://${PUBLIC_HOST}:8000${NC}"
 echo -e "${GREEN}║${NC}  📊 Studio:        ${CYAN}http://${PUBLIC_HOST}:3100${NC}"
 echo -e "${GREEN}║${NC}                                                      ${GREEN}║${NC}"
@@ -212,7 +212,7 @@ echo -e "${GREEN}║${NC}  👤 Admin:  admin@autopartes.com / Admin2026!       
 echo -e "${GREEN}║${NC}                                                      ${GREEN}║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${YELLOW}💡 Recuerda abrir los puertos 8000 y 3000 en:${NC}"
+echo -e "${YELLOW}💡 Recuerda abrir los puertos 8000 y 3001 en:${NC}"
 echo -e "   Oracle Cloud → Networking → VCN → Security Lists → Ingress Rules"
 echo -e "   Azure → NSG → Inbound security rules"
 echo ""
