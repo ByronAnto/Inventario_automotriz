@@ -265,6 +265,27 @@ services:
     networks:
       - supabase-net
 
+  # ──────────────────────────────────────────────
+  # 10. Flutter Web App (Nginx)
+  # ──────────────────────────────────────────────
+  web-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SUPABASE_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+        SUPABASE_ANON_KEY: ${ANON_KEY}
+    image: autopartes-web:latest
+    container_name: autopartes-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      supabase-kong:
+        condition: service_started
+    networks:
+      - supabase-net
+
 volumes:
   supabase-db-data:
     driver: local
