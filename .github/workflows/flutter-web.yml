@@ -53,12 +53,13 @@ jobs:
         with:
           path: build/web
 
-  # Deploy a GitHub Pages (opcional)
+  # Deploy a GitHub Pages (opcional — requiere habilitar Pages en Settings del repo)
   deploy:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    continue-on-error: true  # No falla el workflow si Pages no está habilitado
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -87,14 +88,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Lowercase owner name
+        id: lower
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/autopartes-web:latest
-            ghcr.io/${{ github.repository_owner }}/autopartes-web:${{ github.sha }}
+            ghcr.io/${{ steps.lower.outputs.owner }}/autopartes-web:latest
+            ghcr.io/${{ steps.lower.outputs.owner }}/autopartes-web:${{ github.sha }}
           build-args: |
             SUPABASE_URL=${{ vars.SUPABASE_URL || 'http://localhost:8000' }}
             SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || '' }}
