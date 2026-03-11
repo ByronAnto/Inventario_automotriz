@@ -74,20 +74,56 @@ class AuthNotifier extends Notifier<AppAuthState> {
           .from('perfiles')
           .select()
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
-      final perfil = Perfil.fromJson(response);
-      state = AppAuthState(
-        status: AuthStatus.authenticated,
-        user: user,
-        perfil: perfil,
-      );
+      if (response != null) {
+        final perfil = Perfil.fromJson(response);
+        state = AppAuthState(
+          status: AuthStatus.authenticated,
+          user: user,
+          perfil: perfil,
+        );
+      } else {
+        // Auto-crear perfil si no existe (primer login sin perfil)
+        final nombre = user.userMetadata?['nombre'] as String? ??
+            user.email?.split('@').first ??
+            'Usuario';
+        final isFirstUser = await _isFirstUser();
+
+        final inserted = await _supabase.from('perfiles').insert({
+          'user_id': user.id,
+          'nombre': nombre,
+          'email': user.email,
+          'rol': isFirstUser ? 'administrador' : 'vendedor',
+          'activo': true,
+        }).select().single();
+
+        final perfil = Perfil.fromJson(inserted);
+        state = AppAuthState(
+          status: AuthStatus.authenticated,
+          user: user,
+          perfil: perfil,
+        );
+      }
     } catch (e) {
       state = AppAuthState(
         status: AuthStatus.authenticated,
         user: user,
         errorMessage: 'Error al cargar perfil: $e',
       );
+    }
+  }
+
+  /// Verifica si es el primer usuario (para asignarle rol admin)
+  Future<bool> _isFirstUser() async {
+    try {
+      final count = await _supabase
+          .from('perfiles')
+          .select('id')
+          .limit(1);
+      return (count as List).isEmpty;
+    } catch (_) {
+      return false;
     }
   }
 
