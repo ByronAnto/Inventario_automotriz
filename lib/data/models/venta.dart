@@ -69,6 +69,7 @@ class VentaDetalle {
 
   // Relaciones
   final String? repuestoNombre;
+  final String? vehiculoInfo;
 
   VentaDetalle({
     required this.id,
@@ -76,14 +77,28 @@ class VentaDetalle {
     required this.repuestoId,
     required this.precio,
     this.repuestoNombre,
+    this.vehiculoInfo,
   });
 
   factory VentaDetalle.fromJson(Map<String, dynamic> json) {
     final repuesto = json['repuestos'] as Map<String, dynamic>?;
     String? nombre;
+    String? vehiculoInfo;
     if (repuesto != null) {
       final catalogo = repuesto['catalogo_partes'] as Map<String, dynamic>?;
       nombre = catalogo?['nombre'] as String?;
+
+      final vehiculo = repuesto['vehiculos'] as Map<String, dynamic>?;
+      if (vehiculo != null) {
+        final marca = vehiculo['marcas'] as Map<String, dynamic>?;
+        final modelo = vehiculo['modelos'] as Map<String, dynamic>?;
+        final parts = <String>[
+          if (marca != null) marca['nombre'] as String? ?? '',
+          if (modelo != null) modelo['nombre'] as String? ?? '',
+          if (vehiculo['anio'] != null) vehiculo['anio'].toString(),
+        ].where((s) => s.isNotEmpty).toList();
+        if (parts.isNotEmpty) vehiculoInfo = parts.join(' ');
+      }
     }
 
     return VentaDetalle(
@@ -92,6 +107,7 @@ class VentaDetalle {
       repuestoId: json['repuesto_id'] as String,
       precio: (json['precio'] as num).toDouble(),
       repuestoNombre: nombre,
+      vehiculoInfo: vehiculoInfo,
     );
   }
 

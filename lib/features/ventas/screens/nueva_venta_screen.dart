@@ -47,6 +47,9 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
   double get _total =>
       _carrito.values.fold<double>(0, (sum, item) => sum + item.precio);
 
+  bool get _tienePreciosCero =>
+      _carrito.values.any((item) => item.precio <= 0);
+
   @override
   Widget build(BuildContext context) {
     final repuestos = ref.watch(repuestosDisponiblesProvider);
@@ -228,15 +231,29 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
                   children: [
                     ..._carrito.entries.map((entry) {
                       final item = entry.value;
+                      final sinPrecio = item.precio <= 0;
                       return Card(
+                        color: sinPrecio
+                            ? Colors.red.shade50
+                            : null,
                         child: ListTile(
                           dense: true,
                           title: Text(item.nombre,
                               style:
                                   const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: item.vehiculo != null
-                              ? Text(item.vehiculo!)
-                              : null,
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (item.vehiculo != null)
+                                Text(item.vehiculo!),
+                              if (sinPrecio)
+                                const Text(
+                                  'Ingrese un precio de venta',
+                                  style: TextStyle(
+                                      color: Colors.red, fontSize: 12),
+                                ),
+                            ],
+                          ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -244,23 +261,30 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
                                 width: 80,
                                 child: TextFormField(
                                   initialValue:
-                                      item.precio.toStringAsFixed(2),
-                                  decoration: const InputDecoration(
+                                      item.precio > 0
+                                          ? item.precio.toStringAsFixed(2)
+                                          : '',
+                                  decoration: InputDecoration(
                                     prefixText: '\$ ',
                                     isDense: true,
-                                    border: OutlineInputBorder(),
+                                    hintText: '0.00',
+                                    border: const OutlineInputBorder(),
+                                    enabledBorder: sinPrecio
+                                        ? const OutlineInputBorder(
+                                            borderSide: BorderSide(
+                                                color: Colors.red, width: 2),
+                                          )
+                                        : null,
                                   ),
                                   keyboardType:
                                       const TextInputType.numberWithOptions(
                                           decimal: true),
                                   onChanged: (v) {
                                     final p = double.tryParse(v);
-                                    if (p != null) {
-                                      setState(() {
-                                        _carrito[entry.key] =
-                                            item.copyWith(precio: p);
-                                      });
-                                    }
+                                    setState(() {
+                                      _carrito[entry.key] =
+                                          item.copyWith(precio: p ?? 0);
+                                    });
                                   },
                                 ),
                               ),
@@ -359,12 +383,32 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
                       ),
                     ),
 
+                    // Aviso de precios faltantes
+                    if (_tienePreciosCero)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warning_amber, color: Colors.orange, size: 18),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Todos los artículos deben tener un precio mayor a \$0',
+                                style: TextStyle(color: Colors.orange, fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Botón finalizar
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: FilledButton.icon(
                         onPressed:
-                            _saving || _carrito.isEmpty ? null : _finalizarVenta,
+                            _saving || _carrito.isEmpty || _tienePreciosCero
+                                ? null
+                                : _finalizarVenta,
                         icon: _saving
                             ? const SizedBox(
                                 width: 20,
@@ -419,6 +463,23 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
 
   Future<void> _finalizarVenta() async {
     if (_carrito.isEmpty) return;
+
+    // Validar que todos los items tengan precio > 0
+    final sinPrecio = _carrito.entries
+        .where((e) => e.value.precio <= 0)
+        .map((e) => e.value.nombre)
+        .toList();
+    if (sinPrecio.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Ingrese precio para: ${sinPrecio.join(", ")}'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
 
     try {

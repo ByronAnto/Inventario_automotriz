@@ -966,6 +966,12 @@ BEGIN
       RAISE EXCEPTION 'El repuesto "%" ya no está disponible (estado: %)',
         COALESCE(v_nombre, v_repuesto_id::TEXT), v_estado;
     END IF;
+
+    -- Validar que el precio sea mayor a 0
+    IF (v_item->>'precio')::NUMERIC <= 0 THEN
+      RAISE EXCEPTION 'El precio de "%" debe ser mayor a $0',
+        COALESCE(v_nombre, v_repuesto_id::TEXT);
+    END IF;
   END LOOP;
 
   -- 2. Crear registro de venta
@@ -992,6 +998,51 @@ BEGIN
   END LOOP;
 
   RETURN jsonb_build_object('venta_id', v_venta_id, 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- RPC: Anular venta y devolver repuestos al stock
+-- ============================================
+CREATE OR REPLACE FUNCTION anular_venta(
+  p_venta_id UUID
+) RETURNS JSONB AS $$
+DECLARE
+  v_venta RECORD;
+  v_detalle RECORD;
+  v_count INT := 0;
+BEGIN
+  -- Buscar la venta
+  SELECT * INTO v_venta FROM ventas WHERE id = p_venta_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Venta no encontrada: %', p_venta_id;
+  END IF;
+  IF v_venta.notas IS NOT NULL AND v_venta.notas LIKE '%[ANULADA]%' THEN
+    RAISE EXCEPTION 'Esta venta ya fue anulada';
+  END IF;
+
+  -- Devolver cada repuesto al stock
+  FOR v_detalle IN
+    SELECT vd.repuesto_id, vd.id AS detalle_id
+    FROM venta_detalle vd
+    WHERE vd.venta_id = p_venta_id
+  LOOP
+    UPDATE repuestos SET estado = 'disponible'
+    WHERE id = v_detalle.repuesto_id AND estado = 'vendido';
+
+    INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, venta_id, notas)
+    VALUES (v_detalle.repuesto_id, 'devolucion', NOW(), v_venta.vendedor_id, p_venta_id, 'Venta anulada');
+
+    v_count := v_count + 1;
+  END LOOP;
+
+  -- Marcar venta como anulada
+  UPDATE ventas
+  SET notas = COALESCE(notas || ' ', '') || '[ANULADA]',
+      total = 0
+  WHERE id = p_venta_id;
+
+  RETURN jsonb_build_object('venta_id', p_venta_id, 'items_devueltos', v_count, 'success', true);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
