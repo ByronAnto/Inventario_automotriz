@@ -6,7 +6,51 @@ import '../../../core/constants/app_constants.dart';
 import '../../../data/models/repuesto.dart';
 import '../../../data/models/ubicacion.dart';
 
-// Provider de inventario con filtros
+// ─── Filtros ─────────────────────────────────────────────────
+
+class InventarioFiltros {
+  final String? busqueda;
+  final String? categoria;
+  final String? estado;
+  final String? ubicacionId;
+  final String? marcaNombre;
+
+  InventarioFiltros({
+    this.busqueda,
+    this.categoria,
+    this.estado,
+    this.ubicacionId,
+    this.marcaNombre,
+  });
+
+  bool get hasActiveFilters =>
+      estado != null ||
+      categoria != null ||
+      ubicacionId != null ||
+      marcaNombre != null;
+
+  InventarioFiltros copyWith({
+    String? busqueda,
+    String? categoria,
+    String? estado,
+    String? ubicacionId,
+    String? marcaNombre,
+    bool clearBusqueda = false,
+    bool clearCategoria = false,
+    bool clearEstado = false,
+    bool clearUbicacion = false,
+    bool clearMarca = false,
+  }) {
+    return InventarioFiltros(
+      busqueda: clearBusqueda ? null : busqueda ?? this.busqueda,
+      categoria: clearCategoria ? null : categoria ?? this.categoria,
+      estado: clearEstado ? null : estado ?? this.estado,
+      ubicacionId: clearUbicacion ? null : ubicacionId ?? this.ubicacionId,
+      marcaNombre: clearMarca ? null : marcaNombre ?? this.marcaNombre,
+    );
+  }
+}
+
 class InventarioFiltrosNotifier extends Notifier<InventarioFiltros> {
   @override
   InventarioFiltros build() => InventarioFiltros();
@@ -21,37 +65,7 @@ final inventarioFiltrosProvider =
   InventarioFiltrosNotifier.new,
 );
 
-class InventarioFiltros {
-  final String? busqueda;
-  final String? categoria;
-  final String? estado;
-  final String? ubicacionId;
-
-  InventarioFiltros({
-    this.busqueda,
-    this.categoria,
-    this.estado,
-    this.ubicacionId,
-  });
-
-  InventarioFiltros copyWith({
-    String? busqueda,
-    String? categoria,
-    String? estado,
-    String? ubicacionId,
-    bool clearBusqueda = false,
-    bool clearCategoria = false,
-    bool clearEstado = false,
-    bool clearUbicacion = false,
-  }) {
-    return InventarioFiltros(
-      busqueda: clearBusqueda ? null : busqueda ?? this.busqueda,
-      categoria: clearCategoria ? null : categoria ?? this.categoria,
-      estado: clearEstado ? null : estado ?? this.estado,
-      ubicacionId: clearUbicacion ? null : ubicacionId ?? this.ubicacionId,
-    );
-  }
-}
+// ─── Providers ───────────────────────────────────────────────
 
 final inventarioProvider = FutureProvider<List<Repuesto>>((ref) async {
   final filtros = ref.watch(inventarioFiltrosProvider);
@@ -71,23 +85,32 @@ final inventarioProvider = FutureProvider<List<Repuesto>>((ref) async {
 
   // Filtros client-side
   if (filtros.categoria != null) {
-    repuestos = repuestos
-        .where((r) => r.parteCategoria == filtros.categoria)
-        .toList();
+    repuestos =
+        repuestos.where((r) => r.parteCategoria == filtros.categoria).toList();
+  }
+  if (filtros.marcaNombre != null) {
+    repuestos =
+        repuestos.where((r) => r.vehiculoMarca == filtros.marcaNombre).toList();
   }
   if (filtros.busqueda != null && filtros.busqueda!.isNotEmpty) {
     final term = filtros.busqueda!.toLowerCase();
     repuestos = repuestos.where((r) {
       final nombre = (r.parteNombre ?? '').toLowerCase();
       final vehiculo = (r.vehiculoNombre ?? '').toLowerCase();
-      return nombre.contains(term) || vehiculo.contains(term);
+      final marca = (r.vehiculoMarca ?? '').toLowerCase();
+      final ubicacion = (r.ubicacionNombre ?? '').toLowerCase();
+      return nombre.contains(term) ||
+          vehiculo.contains(term) ||
+          marca.contains(term) ||
+          ubicacion.contains(term);
     }).toList();
   }
 
   return repuestos;
 });
 
-final ubicacionesInventarioProvider = FutureProvider<List<Ubicacion>>((ref) async {
+final ubicacionesInventarioProvider =
+    FutureProvider<List<Ubicacion>>((ref) async {
   final data = await Supabase.instance.client
       .from('ubicaciones')
       .select()
@@ -95,6 +118,17 @@ final ubicacionesInventarioProvider = FutureProvider<List<Ubicacion>>((ref) asyn
       .order('nombre');
   return data.map((e) => Ubicacion.fromJson(e)).toList();
 });
+
+final marcasInventarioProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final data = await Supabase.instance.client
+      .from('marcas')
+      .select('id, nombre')
+      .order('nombre');
+  return data;
+});
+
+// ─── Screen ──────────────────────────────────────────────────
 
 class InventarioScreen extends ConsumerWidget {
   const InventarioScreen({super.key});
@@ -104,144 +138,99 @@ class InventarioScreen extends ConsumerWidget {
     final inventario = ref.watch(inventarioProvider);
     final filtros = ref.watch(inventarioFiltrosProvider);
     final ubicaciones = ref.watch(ubicacionesInventarioProvider);
+    final marcas = ref.watch(marcasInventarioProvider);
+    final isWide = MediaQuery.of(context).size.width > 600;
 
     return Scaffold(
       body: Column(
         children: [
-          // Barra de búsqueda
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Buscar repuesto por nombre o vehículo...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: filtros.busqueda != null
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => ref
-                            .read(inventarioFiltrosProvider.notifier)
-                            .update((_) => filtros.copyWith(clearBusqueda: true)),
-                      )
-                    : null,
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: (v) => ref
-                  .read(inventarioFiltrosProvider.notifier)
-                  .update((_) => filtros.copyWith(busqueda: v)),
-            ),
-          ),
+          // Stats summary bar
+          inventario.whenOrNull(
+                data: (reps) => _StatsBar(repuestos: reps),
+              ) ??
+              const SizedBox.shrink(),
 
-          // Chips de filtro
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                // Filtro estado
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: DropdownButton<String?>(
-                    value: filtros.estado,
-                    hint: const Text('Estado'),
-                    underline: const SizedBox(),
-                    isDense: true,
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('Todos')),
-                      ...['disponible', 'vendido', 'faltante', 'dañado', 'intercambiado', 'descartado']
-                          .map((e) => DropdownMenuItem(
-                              value: e,
-                              child: Text(e[0].toUpperCase() + e.substring(1)))),
-                    ],
-                    onChanged: (v) => ref
-                        .read(inventarioFiltrosProvider.notifier)
-                        .update((_) => v == null
-                        ? filtros.copyWith(clearEstado: true)
-                        : filtros.copyWith(estado: v)),
-                  ),
-                ),
+          // Search bar
+          _buildSearchBar(context, ref, filtros),
 
-                // Filtro categoría
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: DropdownButton<String?>(
-                    value: filtros.categoria,
-                    hint: const Text('Categoría'),
-                    underline: const SizedBox(),
-                    isDense: true,
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('Todas')),
-                      ...AppConstants.categorias.map((c) =>
-                          DropdownMenuItem(value: c, child: Text(c))),
-                    ],
-                    onChanged: (v) => ref
-                        .read(inventarioFiltrosProvider.notifier)
-                        .update((_) => v == null
-                        ? filtros.copyWith(clearCategoria: true)
-                        : filtros.copyWith(categoria: v)),
-                  ),
-                ),
+          // Filters row
+          _buildFilters(context, ref, filtros, ubicaciones, marcas),
 
-                // Filtro ubicación
-                ubicaciones.when(
-                  data: (list) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: DropdownButton<String?>(
-                      value: filtros.ubicacionId,
-                      hint: const Text('Ubicación'),
-                      underline: const SizedBox(),
-                      isDense: true,
-                      items: [
-                        const DropdownMenuItem(
-                            value: null, child: Text('Todas')),
-                        ...list.map((u) => DropdownMenuItem(
-                            value: u.id, child: Text(u.nombre))),
-                      ],
-                      onChanged: (v) => ref
-                          .read(inventarioFiltrosProvider.notifier)
-                          .update((_) => v == null
-                          ? filtros.copyWith(clearUbicacion: true)
-                          : filtros.copyWith(ubicacionId: v)),
-                    ),
-                  ),
-                  loading: () => const SizedBox(),
-                  error: (_, _) => const SizedBox(),
-                ),
-
-                // Limpiar filtros
-                if (filtros.estado != null ||
-                    filtros.categoria != null ||
-                    filtros.ubicacionId != null)
-                  ActionChip(
-                    avatar: const Icon(Icons.clear_all, size: 18),
-                    label: const Text('Limpiar'),
-                    onPressed: () => ref
-                        .read(inventarioFiltrosProvider.notifier)
-                        .update((_) => InventarioFiltros()),
-                  ),
-              ],
-            ),
-          ),
+          // Active filter chips
+          if (filtros.hasActiveFilters)
+            _buildActiveFilterChips(context, ref, filtros, ubicaciones),
 
           const Divider(height: 1),
 
-          // Lista de repuestos
+          // Results count
+          inventario.whenOrNull(
+                data: (reps) => Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${reps.length} repuesto${reps.length != 1 ? "s" : ""} encontrado${reps.length != 1 ? "s" : ""}',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ) ??
+              const SizedBox.shrink(),
+
+          // Repuesto list
           Expanded(
             child: inventario.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
+              error: (e, _) => Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline,
+                        size: 48, color: Colors.red),
+                    const SizedBox(height: 12),
+                    Text('Error: $e', textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => ref.invalidate(inventarioProvider),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              ),
               data: (repuestos) {
                 if (repuestos.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.inventory_2_outlined,
-                            size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text('No se encontraron repuestos',
-                            style: TextStyle(color: Colors.grey)),
+                            size: 72, color: Colors.grey[400]),
+                        const SizedBox(height: 16),
+                        Text(
+                          filtros.hasActiveFilters ||
+                                  (filtros.busqueda?.isNotEmpty ?? false)
+                              ? 'No se encontraron repuestos\ncon los filtros aplicados'
+                              : 'No hay repuestos en el inventario',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (filtros.hasActiveFilters) ...[
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: () => ref
+                                .read(inventarioFiltrosProvider.notifier)
+                                .update((_) => InventarioFiltros()),
+                            icon: const Icon(Icons.clear_all),
+                            label: const Text('Limpiar filtros'),
+                          ),
+                        ],
                       ],
                     ),
                   );
@@ -249,14 +238,29 @@ class InventarioScreen extends ConsumerWidget {
 
                 return RefreshIndicator(
                   onRefresh: () => ref.refresh(inventarioProvider.future),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(8),
-                    itemCount: repuestos.length,
-                    itemBuilder: (context, index) {
-                      final r = repuestos[index];
-                      return _RepuestoCard(repuesto: r);
-                    },
-                  ),
+                  child: isWide
+                      ? GridView.builder(
+                          padding: const EdgeInsets.all(12),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount:
+                                MediaQuery.of(context).size.width > 1200
+                                    ? 3
+                                    : 2,
+                            childAspectRatio: 2.2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                          ),
+                          itemCount: repuestos.length,
+                          itemBuilder: (context, index) =>
+                              _RepuestoCard(repuesto: repuestos[index]),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(8),
+                          itemCount: repuestos.length,
+                          itemBuilder: (context, index) =>
+                              _RepuestoCard(repuesto: repuestos[index]),
+                        ),
                 );
               },
             ),
@@ -271,6 +275,237 @@ class InventarioScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildSearchBar(
+      BuildContext context, WidgetRef ref, InventarioFiltros filtros) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: TextField(
+        decoration: InputDecoration(
+          hintText: 'Buscar por repuesto, vehículo, marca, ubicación...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: filtros.busqueda != null && filtros.busqueda!.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => ref
+                      .read(inventarioFiltrosProvider.notifier)
+                      .update(
+                          (_) => filtros.copyWith(clearBusqueda: true)),
+                )
+              : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: true,
+          fillColor: Colors.grey[100],
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          isDense: true,
+        ),
+        onChanged: (v) => ref
+            .read(inventarioFiltrosProvider.notifier)
+            .update((_) => filtros.copyWith(
+                busqueda: v.isEmpty ? null : v,
+                clearBusqueda: v.isEmpty)),
+      ),
+    );
+  }
+
+  Widget _buildFilters(
+    BuildContext context,
+    WidgetRef ref,
+    InventarioFiltros filtros,
+    AsyncValue<List<Ubicacion>> ubicaciones,
+    AsyncValue<List<Map<String, dynamic>>> marcas,
+  ) {
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          // Estado filter
+          _FilterDropdown<String?>(
+            value: filtros.estado,
+            hint: 'Estado',
+            icon: Icons.flag_outlined,
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Todos')),
+              ...[
+                'disponible',
+                'vendido',
+                'faltante',
+                'dañado',
+                'intercambiado',
+                'descartado'
+              ].map((e) => DropdownMenuItem(
+                  value: e,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: _colorForEstado(e),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(e[0].toUpperCase() + e.substring(1)),
+                    ],
+                  ))),
+            ],
+            onChanged: (v) => ref
+                .read(inventarioFiltrosProvider.notifier)
+                .update((_) => v == null
+                    ? filtros.copyWith(clearEstado: true)
+                    : filtros.copyWith(estado: v)),
+          ),
+
+          // Marca filter
+          marcas.when(
+            data: (list) => _FilterDropdown<String?>(
+              value: filtros.marcaNombre,
+              hint: 'Marca',
+              icon: Icons.directions_car_outlined,
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Todas')),
+                ...list.map((m) => DropdownMenuItem(
+                    value: m['nombre'] as String,
+                    child: Text(m['nombre'] as String))),
+              ],
+              onChanged: (v) => ref
+                  .read(inventarioFiltrosProvider.notifier)
+                  .update((_) => v == null
+                      ? filtros.copyWith(clearMarca: true)
+                      : filtros.copyWith(marcaNombre: v)),
+            ),
+            loading: () => const SizedBox(),
+            error: (_, _) => const SizedBox(),
+          ),
+
+          // Categoría filter
+          _FilterDropdown<String?>(
+            value: filtros.categoria,
+            hint: 'Categoría',
+            icon: Icons.category_outlined,
+            items: [
+              const DropdownMenuItem(value: null, child: Text('Todas')),
+              ...AppConstants.categorias
+                  .map((c) => DropdownMenuItem(value: c, child: Text(c))),
+            ],
+            onChanged: (v) => ref
+                .read(inventarioFiltrosProvider.notifier)
+                .update((_) => v == null
+                    ? filtros.copyWith(clearCategoria: true)
+                    : filtros.copyWith(categoria: v)),
+          ),
+
+          // Ubicación filter
+          ubicaciones.when(
+            data: (list) => _FilterDropdown<String?>(
+              value: filtros.ubicacionId,
+              hint: 'Ubicación',
+              icon: Icons.location_on_outlined,
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Todas')),
+                ...list.map((u) =>
+                    DropdownMenuItem(value: u.id, child: Text(u.nombre))),
+              ],
+              onChanged: (v) => ref
+                  .read(inventarioFiltrosProvider.notifier)
+                  .update((_) => v == null
+                      ? filtros.copyWith(clearUbicacion: true)
+                      : filtros.copyWith(ubicacionId: v)),
+            ),
+            loading: () => const SizedBox(),
+            error: (_, _) => const SizedBox(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveFilterChips(
+    BuildContext context,
+    WidgetRef ref,
+    InventarioFiltros filtros,
+    AsyncValue<List<Ubicacion>> ubicaciones,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        children: [
+          if (filtros.estado != null)
+            Chip(
+              label: Text(filtros.estado![0].toUpperCase() +
+                  filtros.estado!.substring(1)),
+              onDeleted: () => ref
+                  .read(inventarioFiltrosProvider.notifier)
+                  .update((_) => filtros.copyWith(clearEstado: true)),
+              backgroundColor:
+                  _colorForEstado(filtros.estado!).withValues(alpha: 0.15),
+              deleteIconColor: _colorForEstado(filtros.estado!),
+              labelStyle: TextStyle(
+                color: _colorForEstado(filtros.estado!),
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          if (filtros.marcaNombre != null)
+            Chip(
+              avatar: const Icon(Icons.directions_car, size: 14),
+              label: Text(filtros.marcaNombre!),
+              onDeleted: () => ref
+                  .read(inventarioFiltrosProvider.notifier)
+                  .update((_) => filtros.copyWith(clearMarca: true)),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          if (filtros.categoria != null)
+            Chip(
+              avatar: const Icon(Icons.category, size: 14),
+              label: Text(filtros.categoria!),
+              onDeleted: () => ref
+                  .read(inventarioFiltrosProvider.notifier)
+                  .update((_) => filtros.copyWith(clearCategoria: true)),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          if (filtros.ubicacionId != null)
+            ubicaciones.whenOrNull(
+                  data: (list) {
+                    final ub = list
+                        .where((u) => u.id == filtros.ubicacionId)
+                        .firstOrNull;
+                    return Chip(
+                      avatar: const Icon(Icons.location_on, size: 14),
+                      label: Text(ub?.nombre ?? 'Ubicación'),
+                      onDeleted: () => ref
+                          .read(inventarioFiltrosProvider.notifier)
+                          .update(
+                              (_) => filtros.copyWith(clearUbicacion: true)),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    );
+                  },
+                ) ??
+                const SizedBox.shrink(),
+          ActionChip(
+            avatar: const Icon(Icons.clear_all, size: 16),
+            label: const Text('Limpiar todo'),
+            onPressed: () => ref
+                .read(inventarioFiltrosProvider.notifier)
+                .update((_) => InventarioFiltros()),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+  }
+
   void _mostrarDialogoIngresoExterno(BuildContext context, WidgetRef ref) {
     showDialog(
       context: context,
@@ -279,124 +514,643 @@ class InventarioScreen extends ConsumerWidget {
   }
 }
 
+// ─── Stats Bar ───────────────────────────────────────────────
+
+class _StatsBar extends StatelessWidget {
+  final List<Repuesto> repuestos;
+  const _StatsBar({required this.repuestos});
+
+  @override
+  Widget build(BuildContext context) {
+    final disponibles =
+        repuestos.where((r) => r.estado == 'disponible').length;
+    final vendidos = repuestos.where((r) => r.estado == 'vendido').length;
+    final faltantes = repuestos.where((r) => r.estado == 'faltante').length;
+    final danados = repuestos.where((r) => r.estado == 'dañado').length;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+            Theme.of(context).colorScheme.primary.withValues(alpha: 0.03),
+          ],
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _StatItem(
+            icon: Icons.inventory_2,
+            label: 'Total',
+            value: '${repuestos.length}',
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          _StatItem(
+            icon: Icons.check_circle,
+            label: 'Disponible',
+            value: '$disponibles',
+            color: Colors.green,
+          ),
+          _StatItem(
+            icon: Icons.shopping_cart,
+            label: 'Vendido',
+            value: '$vendidos',
+            color: Colors.blue,
+          ),
+          _StatItem(
+            icon: Icons.warning_amber,
+            label: 'Atención',
+            value: '${faltantes + danados}',
+            color: Colors.orange,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 4),
+            Text(
+              value,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Filter Dropdown Widget ──────────────────────────────────
+
+class _FilterDropdown<T> extends StatelessWidget {
+  final T value;
+  final String hint;
+  final IconData icon;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  const _FilterDropdown({
+    required this.value,
+    required this.hint,
+    required this.icon,
+    required this.items,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = value != null;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: isActive
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+              : Colors.grey[100],
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isActive
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey[300]!,
+          ),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<T>(
+            value: value,
+            hint: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text(hint,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+              ],
+            ),
+            isDense: true,
+            icon: Icon(Icons.arrow_drop_down,
+                size: 18, color: Colors.grey[600]),
+            items: items,
+            onChanged: onChanged,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Repuesto Card (Redesigned) ──────────────────────────────
+
 class _RepuestoCard extends StatelessWidget {
   final Repuesto repuesto;
   const _RepuestoCard({required this.repuesto});
 
   @override
   Widget build(BuildContext context) {
+    final estadoColor = _colorForEstado(repuesto.estado);
+    final hasVehicle = repuesto.vehiculoMarca != null;
+
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: _colorForEstado(repuesto.estado).withValues(alpha: 0.2),
-          child: Icon(
-            _iconForEstado(repuesto.estado),
-            color: _colorForEstado(repuesto.estado),
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: estadoColor.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showRepuestoDetail(context, repuesto),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Top row: Estado badge + Price
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: estadoColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(_iconForEstado(repuesto.estado),
+                            size: 14, color: estadoColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          repuesto.estado[0].toUpperCase() +
+                              repuesto.estado.substring(1),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: estadoColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (repuesto.precioSugerido != null)
+                    Text(
+                      '\$${repuesto.precioSugerido!.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.green,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Part name
+              Text(
+                repuesto.parteNombre ?? 'Sin nombre',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 2),
+
+              // Category
+              if (repuesto.parteCategoria != null)
+                Text(
+                  repuesto.parteCategoria!,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              const SizedBox(height: 8),
+
+              // Vehicle info row
+              if (hasVehicle)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.directions_car,
+                          size: 14, color: Colors.blueGrey),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '${repuesto.vehiculoMarca ?? ""} ${repuesto.vehiculoModelo ?? ""} ${repuesto.vehiculoAnio ?? ""}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blueGrey,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              if (!hasVehicle && repuesto.origen == 'externo')
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.local_shipping,
+                          size: 14, color: Colors.amber[700]),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Externo${repuesto.proveedorExterno != null ? " · ${repuesto.proveedorExterno}" : ""}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.amber[800],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 6),
+
+              // Bottom row: Location + chevron
+              Row(
+                children: [
+                  if (repuesto.ubicacionNombre != null) ...[
+                    Icon(Icons.location_on, size: 14, color: Colors.grey[500]),
+                    const SizedBox(width: 3),
+                    Expanded(
+                      child: Text(
+                        repuesto.ubicacionNombre!,
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ] else
+                    const Spacer(),
+                  Icon(Icons.chevron_right, size: 18, color: Colors.grey[400]),
+                ],
+              ),
+            ],
           ),
-        ),
-        title: Text(
-          repuesto.parteNombre ?? 'Sin nombre',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (repuesto.vehiculoNombre != null)
-              Text('Vehículo: ${repuesto.vehiculoNombre}'),
-            Row(
-              children: [
-                if (repuesto.parteCategoria != null)
-                  Text(
-                    repuesto.parteCategoria!,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                const SizedBox(width: 8),
-                if (repuesto.ubicacionNombre != null)
-                  Text(
-                    '📍 ${repuesto.ubicacionNombre}',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-              ],
-            ),
-          ],
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: _colorForEstado(repuesto.estado).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                repuesto.estado.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: _colorForEstado(repuesto.estado),
-                ),
-              ),
-            ),
-            if (repuesto.precioSugerido != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  '\$${repuesto.precioSugerido!.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green,
-                  ),
-                ),
-              ),
-          ],
         ),
       ),
     );
   }
+}
 
-  Color _colorForEstado(String estado) {
-    switch (estado) {
-      case 'disponible':
-        return Colors.green;
-      case 'vendido':
-        return Colors.blue;
-      case 'faltante':
-        return Colors.red;
-      case 'dañado':
-        return Colors.orange;
-      case 'intercambiado':
-        return Colors.purple;
-      case 'descartado':
-        return Colors.grey;
-      default:
-        return Colors.grey;
-    }
-  }
+// ─── Repuesto Detail Bottom Sheet ────────────────────────────
 
-  IconData _iconForEstado(String estado) {
-    switch (estado) {
-      case 'disponible':
-        return Icons.check_circle;
-      case 'vendido':
-        return Icons.shopping_cart;
-      case 'faltante':
-        return Icons.remove_circle;
-      case 'dañado':
-        return Icons.warning;
-      case 'intercambiado':
-        return Icons.swap_horiz;
-      case 'descartado':
-        return Icons.delete;
-      default:
-        return Icons.help;
-    }
+void _showRepuestoDetail(BuildContext context, Repuesto r) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => DraggableScrollableSheet(
+      initialChildSize: 0.65,
+      maxChildSize: 0.9,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (context, scrollController) => SingleChildScrollView(
+        controller: scrollController,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+
+            // Header: Name + Estado
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    r.parteNombre ?? 'Sin nombre',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color:
+                        _colorForEstado(r.estado).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_iconForEstado(r.estado),
+                          size: 16, color: _colorForEstado(r.estado)),
+                      const SizedBox(width: 4),
+                      Text(
+                        r.estado[0].toUpperCase() + r.estado.substring(1),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _colorForEstado(r.estado),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            if (r.parteCategoria != null) ...[
+              const SizedBox(height: 4),
+              Chip(
+                avatar: const Icon(Icons.category, size: 14),
+                label: Text(r.parteCategoria!),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
+            const Divider(height: 24),
+
+            // Vehicle info section
+            if (r.vehiculoMarca != null) ...[
+              _DetailSection(
+                icon: Icons.directions_car,
+                title: 'Vehículo',
+                children: [
+                  _DetailRow('Marca', r.vehiculoMarca!),
+                  if (r.vehiculoModelo != null)
+                    _DetailRow('Modelo', r.vehiculoModelo!),
+                  if (r.vehiculoAnio != null)
+                    _DetailRow('Año', '${r.vehiculoAnio}'),
+                ],
+              ),
+              const Divider(height: 24),
+            ],
+
+            // Location & Origin
+            _DetailSection(
+              icon: Icons.info_outline,
+              title: 'Información',
+              children: [
+                if (r.ubicacionNombre != null)
+                  _DetailRow('Ubicación', r.ubicacionNombre!),
+                _DetailRow(
+                    'Origen', r.origen == 'externo' ? 'Externo' : 'Vehículo'),
+                if (r.proveedorExterno != null)
+                  _DetailRow('Proveedor', r.proveedorExterno!),
+              ],
+            ),
+            const Divider(height: 24),
+
+            // Pricing
+            _DetailSection(
+              icon: Icons.attach_money,
+              title: 'Precios',
+              children: [
+                if (r.precioSugerido != null)
+                  _DetailRow('Precio sugerido',
+                      '\$${r.precioSugerido!.toStringAsFixed(2)}'),
+                if (r.costoExterno != null)
+                  _DetailRow('Costo externo',
+                      '\$${r.costoExterno!.toStringAsFixed(2)}'),
+                if (r.precioSugerido == null && r.costoExterno == null)
+                  const _DetailRow('Sin precios', 'No definido'),
+              ],
+            ),
+
+            // Notes
+            if (r.notas != null && r.notas!.isNotEmpty) ...[
+              const Divider(height: 24),
+              _DetailSection(
+                icon: Icons.notes,
+                title: 'Notas',
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child:
+                        Text(r.notas!, style: const TextStyle(fontSize: 14)),
+                  ),
+                ],
+              ),
+            ],
+
+            // Date
+            const Divider(height: 24),
+            Row(
+              children: [
+                Icon(Icons.calendar_today, size: 14, color: Colors.grey[500]),
+                const SizedBox(width: 6),
+                Text(
+                  'Registrado: ${_formatDate(r.createdAt)}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // Back button (for mobile APK)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Volver al inventario'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+String _formatDate(DateTime dt) {
+  return '${dt.day.toString().padLeft(2, "0")}/${dt.month.toString().padLeft(2, "0")}/${dt.year}';
+}
+
+// ─── Detail Section Widget ───────────────────────────────────
+
+class _DetailSection extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final List<Widget> children;
+
+  const _DetailSection({
+    required this.icon,
+    required this.title,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...children,
+      ],
+    );
   }
 }
 
-// Dialog para ingreso externo de repuestos
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4, left: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Color & Icon helpers ────────────────────────────────────
+
+Color _colorForEstado(String estado) {
+  switch (estado) {
+    case 'disponible':
+      return Colors.green;
+    case 'vendido':
+      return Colors.blue;
+    case 'faltante':
+      return Colors.red;
+    case 'dañado':
+      return Colors.orange;
+    case 'intercambiado':
+      return Colors.purple;
+    case 'descartado':
+      return Colors.grey;
+    default:
+      return Colors.grey;
+  }
+}
+
+IconData _iconForEstado(String estado) {
+  switch (estado) {
+    case 'disponible':
+      return Icons.check_circle;
+    case 'vendido':
+      return Icons.shopping_cart;
+    case 'faltante':
+      return Icons.remove_circle;
+    case 'dañado':
+      return Icons.warning;
+    case 'intercambiado':
+      return Icons.swap_horiz;
+    case 'descartado':
+      return Icons.delete;
+    default:
+      return Icons.help;
+  }
+}
+
+// ─── Ingreso Externo Dialog ──────────────────────────────────
+
 class _IngresoExternoDialog extends ConsumerStatefulWidget {
   const _IngresoExternoDialog();
 
@@ -416,7 +1170,8 @@ class _IngresoExternoDialogState
   final _notasCtrl = TextEditingController();
   bool _saving = false;
 
-  final _partesProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final _partesProvider =
+      FutureProvider<List<Map<String, dynamic>>>((ref) async {
     final data = await Supabase.instance.client
         .from('catalogo_partes')
         .select()
