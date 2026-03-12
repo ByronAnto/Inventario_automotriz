@@ -77,7 +77,7 @@ jobs:
   # Deploy en Oracle Cloud VM (self-hosted runner ARM64)
   deploy:
     name: Deploy to Oracle Cloud
-    needs: build
+    needs: [build, docker]
     runs-on: [self-hosted, Linux, ARM64]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
