@@ -468,10 +468,11 @@ class _TrasladoDialogState extends ConsumerState<_TrasladoDialog> {
     try {
       final supabase = Supabase.instance.client;
 
+      final perfilId = ref.read(authProvider).perfil!.id;
       await supabase.rpc('trasladar_repuestos', params: {
         'p_repuesto_ids': [_repuestoId],
         'p_ubicacion_destino_id': _ubicacionDestinoId,
-        'p_usuario_id': supabase.auth.currentUser!.id,
+        'p_usuario_id': perfilId,
         'p_notas': _notasCtrl.text.isEmpty ? null : _notasCtrl.text,
       });
 

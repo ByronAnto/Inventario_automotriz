@@ -1158,7 +1158,17 @@ DECLARE
   v_nombre TEXT;
   v_reserva_id UUID;
   v_fecha_exp TIMESTAMPTZ;
+  v_perfil_id UUID;
 BEGIN
+  -- Resolver perfil_id
+  v_perfil_id := p_vendedor_id;
+  IF v_perfil_id IS NULL THEN
+    SELECT id INTO v_perfil_id FROM perfiles WHERE user_id = auth.uid();
+  END IF;
+  IF v_perfil_id IS NULL THEN
+    RAISE EXCEPTION 'No se encontró perfil para el usuario actual';
+  END IF;
+
   SELECT r.estado, cp.nombre INTO v_estado, v_nombre
   FROM repuestos r
   LEFT JOIN catalogo_partes cp ON r.catalogo_parte_id = cp.id
@@ -1181,7 +1191,7 @@ BEGIN
                         fecha_expiracion, vendedor_id, notas)
   VALUES (p_repuesto_id, p_cliente_nombre, NULLIF(p_cliente_telefono, ''),
           p_monto_abono, v_fecha_exp,
-          COALESCE(p_vendedor_id, auth.uid()),
+          v_perfil_id,
           NULLIF(p_notas, ''))
   RETURNING id INTO v_reserva_id;
 
@@ -1189,7 +1199,7 @@ BEGIN
 
   INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, notas)
   VALUES (p_repuesto_id, 'reserva', NOW(),
-          COALESCE(p_vendedor_id, auth.uid()),
+          v_perfil_id,
           'Reservado para ' || p_cliente_nombre || ' - Abono: $' || p_monto_abono::TEXT);
 
   RETURN jsonb_build_object('reserva_id', v_reserva_id, 'repuesto', COALESCE(v_nombre, p_repuesto_id::TEXT),
@@ -1281,7 +1291,17 @@ DECLARE
   v_ubicacion_origen UUID;
   v_ubicacion_destino_nombre TEXT;
   v_count INT := 0;
+  v_perfil_id UUID;
 BEGIN
+  -- Resolver perfil_id
+  v_perfil_id := p_usuario_id;
+  IF v_perfil_id IS NULL THEN
+    SELECT id INTO v_perfil_id FROM perfiles WHERE user_id = auth.uid();
+  END IF;
+  IF v_perfil_id IS NULL THEN
+    RAISE EXCEPTION 'No se encontró perfil para el usuario actual';
+  END IF;
+
   SELECT nombre INTO v_ubicacion_destino_nombre
   FROM ubicaciones WHERE id = p_ubicacion_destino_id AND activo = true;
   IF v_ubicacion_destino_nombre IS NULL THEN
@@ -1312,7 +1332,7 @@ BEGIN
 
     INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id,
                              ubicacion_origen_id, ubicacion_destino_id, notas)
-    VALUES (v_repuesto_id, 'traslado', NOW(), p_usuario_id,
+    VALUES (v_repuesto_id, 'traslado', NOW(), v_perfil_id,
             v_ubicacion_origen, p_ubicacion_destino_id,
             COALESCE(p_notas, 'Traslado a ' || v_ubicacion_destino_nombre));
 

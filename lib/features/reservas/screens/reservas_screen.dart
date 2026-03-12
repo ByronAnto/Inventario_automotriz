@@ -821,6 +821,7 @@ class _NuevaReservaDialogState extends ConsumerState<_NuevaReservaDialog> {
     setState(() => _saving = true);
 
     try {
+      final perfilId = ref.read(authProvider).perfil!.id;
       await Supabase.instance.client.rpc('reservar_repuesto', params: {
         'p_repuesto_id': _repuestoId,
         'p_cliente_nombre': _clienteNombreCtrl.text.trim(),
@@ -829,7 +830,7 @@ class _NuevaReservaDialogState extends ConsumerState<_NuevaReservaDialog> {
             : _clienteTelefonoCtrl.text.trim(),
         'p_monto_abono': double.parse(_montoAbonoCtrl.text),
         'p_dias_expiracion': _diasExpiracion,
-        'p_vendedor_id': Supabase.instance.client.auth.currentUser!.id,
+        'p_vendedor_id': perfilId,
         'p_notas':
             _notasCtrl.text.trim().isEmpty ? null : _notasCtrl.text.trim(),
       });

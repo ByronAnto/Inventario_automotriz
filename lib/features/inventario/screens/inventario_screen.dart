@@ -1252,10 +1252,11 @@ class _TrasladarDialogState extends ConsumerState<_TrasladarDialog> {
     setState(() => _saving = true);
 
     try {
+      final perfilId = ref.read(authProvider).perfil!.id;
       await Supabase.instance.client.rpc('trasladar_repuestos', params: {
         'p_repuesto_ids': [widget.repuesto.id],
         'p_ubicacion_destino_id': _ubicacionDestinoId,
-        'p_usuario_id': Supabase.instance.client.auth.currentUser!.id,
+        'p_usuario_id': perfilId,
       });
 
       ref.invalidate(inventarioProvider);
