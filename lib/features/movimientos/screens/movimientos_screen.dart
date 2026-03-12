@@ -486,7 +486,7 @@ class _TrasladoDialogState extends ConsumerState<_TrasladoDialog> {
         'repuesto_id': _repuestoId,
         'tipo': 'traslado',
         'fecha': DateTime.now().toIso8601String(),
-        'usuario_id': auth.user!.id,
+        'usuario_id': auth.perfil!.id,
         'ubicacion_origen_id': repData['ubicacion_id'],
         'ubicacion_destino_id': _ubicacionDestinoId,
         'notas': _notasCtrl.text.isEmpty ? 'Traslado' : _notasCtrl.text,
@@ -718,7 +718,7 @@ class _IntercambioDialogState extends ConsumerState<_IntercambioDialog> {
     try {
       final supabase = Supabase.instance.client;
       final auth = ref.read(authProvider);
-      final userId = auth.user!.id;
+      final userId = auth.perfil!.id;
 
       // 1. Actualizar repuesto que sale → "intercambiado"
       await supabase
@@ -913,7 +913,7 @@ class _DescarteDialogState extends ConsumerState<_DescarteDialog> {
         'repuesto_id': _repuestoId,
         'tipo': 'descarte',
         'fecha': DateTime.now().toIso8601String(),
-        'usuario_id': auth.user!.id,
+        'usuario_id': auth.perfil!.id,
         'notas': _motivoCtrl.text,
       });
 

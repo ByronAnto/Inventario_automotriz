@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../data/models/catalogo_parte.dart';
 import '../../../data/models/vehiculo.dart';
 
@@ -318,7 +319,8 @@ class _CondicionesIngresoScreenState
 
     try {
       final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser!.id;
+      final auth = ref.read(authProvider);
+      final userId = auth.perfil!.id;
 
       // Obtener vehículo para la ubicación
       final vehiculoData = await supabase

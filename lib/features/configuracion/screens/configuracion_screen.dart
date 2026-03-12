@@ -142,9 +142,44 @@ class _CatalogoPartesTab extends ConsumerWidget {
                   children: entry.value.map((parte) {
                     return ListTile(
                       title: Text(parte.nombre),
-                      trailing: Switch(
-                        value: parte.activoPorDefecto,
-                        onChanged: (val) => _toggleParte(ref, parte, val),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Switch(
+                            value: parte.activoPorDefecto,
+                            onChanged: (val) => _toggleParte(ref, parte, val),
+                          ),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 20),
+                            onSelected: (action) {
+                              if (action == 'editar') {
+                                _showEditParteDialog(context, ref, parte);
+                              } else if (action == 'eliminar') {
+                                _confirmDeleteParte(context, ref, parte);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'editar',
+                                child: ListTile(
+                                  leading: Icon(Icons.edit, size: 20),
+                                  title: Text('Editar'),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'eliminar',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete, size: 20, color: Colors.red),
+                                  title: Text('Eliminar', style: TextStyle(color: Colors.red)),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     );
                   }).toList(),
@@ -169,6 +204,91 @@ class _CatalogoPartesTab extends ConsumerWidget {
         .from('catalogo_partes')
         .update({'activo_por_defecto': value}).eq('id', parte.id);
     ref.invalidate(catalogoPartesProvider);
+  }
+
+  void _showEditParteDialog(BuildContext context, WidgetRef ref, CatalogoParte parte) {
+    final nombreCtrl = TextEditingController(text: parte.nombre);
+    String categoriaSeleccionada = parte.categoria;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar Parte'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nombreCtrl,
+              decoration: const InputDecoration(labelText: 'Nombre de la parte'),
+            ),
+            const SizedBox(height: 16),
+            StatefulBuilder(
+              builder: (context, setDialogState) {
+                return DropdownButtonFormField<String>(
+                  initialValue: categoriaSeleccionada,
+                  decoration: const InputDecoration(labelText: 'Categor\u00eda'),
+                  items: AppConstants.categorias
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
+                  onChanged: (val) {
+                    setDialogState(() => categoriaSeleccionada = val!);
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (nombreCtrl.text.isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase.from('catalogo_partes').update({
+                  'nombre': nombreCtrl.text.trim(),
+                  'categoria': categoriaSeleccionada,
+                }).eq('id', parte.id);
+                ref.invalidate(catalogoPartesProvider);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteParte(BuildContext context, WidgetRef ref, CatalogoParte parte) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar parte'),
+        content: Text('\u00bfEliminar "${parte.nombre}"?\n\nTambi\u00e9n se quitar\u00e1 de todas las plantillas.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              // Primero eliminar de plantillas
+              await supabase.from('plantilla_tipo_vehiculo').delete().eq('parte_id', parte.id);
+              // Luego eliminar la parte del cat\u00e1logo
+              await supabase.from('catalogo_partes').delete().eq('id', parte.id);
+              ref.invalidate(catalogoPartesProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showAddParteDialog(BuildContext context, WidgetRef ref) {
@@ -437,30 +557,186 @@ class _PlantillaPartesList extends ConsumerWidget {
           porCategoria.putIfAbsent(cat, () => []).add(p);
         }
 
-        return ListView(
-          padding: const EdgeInsets.all(8),
-          children: porCategoria.entries.map((entry) {
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ExpansionTile(
-                title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text(
-                  '${entry.value.where((p) => p.activo).length}/${entry.value.length} activas',
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: ListView(
+            padding: const EdgeInsets.all(8),
+            children: porCategoria.entries.map((entry) {
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ExpansionTile(
+                  title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(
+                    '${entry.value.where((p) => p.activo).length}/${entry.value.length} activas',
+                  ),
+                  children: entry.value.map((plantillaParte) {
+                    return ListTile(
+                      title: Text(plantillaParte.parte?.nombre ?? 'Sin nombre'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Switch(
+                            value: plantillaParte.activo,
+                            onChanged: (val) =>
+                                _togglePlantillaParte(ref, plantillaParte, val),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline,
+                                size: 20, color: Colors.red),
+                            tooltip: 'Quitar de la plantilla',
+                            onPressed: () => _confirmDeletePlantillaParte(
+                                context, ref, plantillaParte),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                 ),
-                children: entry.value.map((plantillaParte) {
-                  return SwitchListTile(
-                    title: Text(plantillaParte.parte?.nombre ?? 'Sin nombre'),
-                    value: plantillaParte.activo,
-                    onChanged: (val) => _togglePlantillaParte(ref, plantillaParte, val),
-                  );
-                }).toList(),
-              ),
-            );
-          }).toList(),
+              );
+            }).toList(),
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _showAddParteToPlantilla(context, ref, lista),
+            icon: const Icon(Icons.add),
+            label: const Text('Agregar parte'),
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+
+  void _showAddParteToPlantilla(
+      BuildContext context, WidgetRef ref, List<PlantillaTipoVehiculo> existentes) {
+    final supabase = ref.read(supabaseClientProvider);
+    final existingParteIds = existentes.map((e) => e.parteId).toSet();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: supabase.from('catalogo_partes').select().order('categoria').order('nombre'),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const AlertDialog(
+                content: SizedBox(
+                  height: 100,
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              return AlertDialog(
+                title: const Text('Error'),
+                content: Text('${snapshot.error}'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cerrar')),
+                ],
+              );
+            }
+
+            final todasPartes = snapshot.data ?? [];
+            final disponibles = todasPartes
+                .where((p) => !existingParteIds.contains(p['id']))
+                .toList();
+
+            if (disponibles.isEmpty) {
+              return AlertDialog(
+                title: const Text('Sin partes disponibles'),
+                content: const Text(
+                    'Todas las partes del catálogo ya están en esta plantilla.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cerrar')),
+                ],
+              );
+            }
+
+            // Agrupar por categoría
+            final porCategoria = <String, List<Map<String, dynamic>>>{};
+            for (final p in disponibles) {
+              final cat = (p['categoria'] as String?) ?? 'Sin categoría';
+              porCategoria.putIfAbsent(cat, () => []).add(p);
+            }
+
+            return AlertDialog(
+              title: const Text('Agregar parte a la plantilla'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 400,
+                child: ListView(
+                  children: porCategoria.entries.map((entry) {
+                    return ExpansionTile(
+                      title: Text(entry.key,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      children: entry.value.map((parte) {
+                        return ListTile(
+                          title: Text(parte['nombre'] ?? ''),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.add_circle,
+                                color: Colors.green),
+                            onPressed: () async {
+                              await supabase
+                                  .from('plantilla_tipo_vehiculo')
+                                  .insert({
+                                'tipo_vehiculo_id': tipoId,
+                                'parte_id': parte['id'],
+                                'activo': true,
+                              });
+                              ref.invalidate(plantillaTipoProvider(tipoId));
+                              if (ctx.mounted) Navigator.pop(ctx);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  }).toList(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cerrar')),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _confirmDeletePlantillaParte(
+      BuildContext context, WidgetRef ref, PlantillaTipoVehiculo plantillaParte) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quitar parte'),
+        content: Text(
+            '\u00bfQuitar "${plantillaParte.parte?.nombre ?? ''}" de esta plantilla?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase
+                  .from('plantilla_tipo_vehiculo')
+                  .delete()
+                  .eq('id', plantillaParte.id);
+              ref.invalidate(plantillaTipoProvider(tipoId));
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Quitar'),
+          ),
+        ],
+      ),
     );
   }
 

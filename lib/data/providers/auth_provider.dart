@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../config/supabase_config.dart';
 import '../models/perfil.dart';
 
 // Estado de autenticación
@@ -162,8 +163,14 @@ class AuthNotifier extends Notifier<AppAuthState> {
   }) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
-      // Crear usuario en auth
-      final response = await _supabase.auth.admin.createUser(
+      // Crear un cliente admin con SERVICE_ROLE_KEY para poder usar auth.admin
+      final adminClient = SupabaseClient(
+        SupabaseConfig.supabaseUrl,
+        SupabaseConfig.serviceRoleKey,
+      );
+
+      // Crear usuario en auth usando el cliente admin
+      final response = await adminClient.auth.admin.createUser(
         AdminUserAttributes(
           email: email,
           password: password,
@@ -172,8 +179,8 @@ class AuthNotifier extends Notifier<AppAuthState> {
       );
 
       if (response.user != null) {
-        // Crear perfil
-        await _supabase.from('perfiles').insert({
+        // Crear perfil usando el cliente admin (tiene permisos service_role)
+        await adminClient.from('perfiles').insert({
           'user_id': response.user!.id,
           'nombre': nombre,
           'email': email,
@@ -183,6 +190,9 @@ class AuthNotifier extends Notifier<AppAuthState> {
           'activo': true,
         });
       }
+
+      // Cerrar el cliente admin
+      adminClient.dispose();
 
       state = state.copyWith(isLoading: false);
     } catch (e) {

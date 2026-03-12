@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/models/repuesto.dart';
 import '../../../data/models/ubicacion.dart';
@@ -583,7 +584,8 @@ class _IngresoExternoDialogState
 
     try {
       final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser!.id;
+      final auth = ref.read(authProvider);
+      final userId = auth.perfil!.id;
 
       // Crear repuesto externo
       final repuesto = await supabase.from('repuestos').insert({

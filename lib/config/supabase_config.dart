@@ -23,6 +23,10 @@ class SupabaseConfig {
     'SUPABASE_ANON_KEY',
     defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.6ldkvHM8WjwyHI_tKbJOgWu-VbulTx9jmeuEvNGSFkY',
   );
+  static const String _defaultServiceRoleKey = String.fromEnvironment(
+    'SUPABASE_SERVICE_ROLE_KEY',
+    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.mjENke8J4x_734atFXjInx76tWeHpG_5y1KaXY_3Smg',
+  );
 
   // ── Keys de SharedPreferences ──
   static const String _urlKey = 'supabase_url';
@@ -31,6 +35,7 @@ class SupabaseConfig {
   // ── Valores activos (se cargan al iniciar) ──
   static String supabaseUrl = _defaultUrl;
   static String supabaseAnonKey = _defaultAnonKey;
+  static String serviceRoleKey = _defaultServiceRoleKey;
 
   // Bucket para almacenar fotos
   static const String vehiculosBucket = 'vehiculos';

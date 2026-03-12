@@ -423,7 +423,7 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
     try {
       final supabase = Supabase.instance.client;
       final auth = ref.read(authProvider);
-      final vendedorId = auth.user!.id;
+      final vendedorId = auth.perfil!.id;
 
       // Crear venta
       final ventaData = await supabase.from('ventas').insert({

@@ -3,6 +3,7 @@
 docker/kong.yml:jwt:13
 docker/kong.yml:jwt:16
 lib/config/supabase_config.dart:jwt:24
+lib/config/supabase_config.dart:jwt:28
 docker-compose.yml:generic-api-key:132
 README.md:curl-auth-header:276
 README.md:generic-api-key:216

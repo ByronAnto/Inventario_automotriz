@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../data/models/marca_modelo.dart';
 import '../../../data/models/tipo_vehiculo.dart';
 import '../../../data/models/ubicacion.dart';
@@ -402,7 +403,8 @@ class _VehiculoFormScreenState extends ConsumerState<VehiculoFormScreen> {
 
     try {
       final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser!.id;
+      final auth = ref.read(authProvider);
+      final userId = auth.perfil!.id;
 
       final data = {
         'marca_id': _marcaId,
