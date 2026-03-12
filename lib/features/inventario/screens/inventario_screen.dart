@@ -5,6 +5,8 @@ import '../../../data/providers/auth_provider.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/models/repuesto.dart';
 import '../../../data/models/ubicacion.dart';
+import '../../../data/models/marca_modelo.dart';
+import '../../../data/models/proveedor.dart';
 
 // ─── Filtros ─────────────────────────────────────────────────
 
@@ -126,6 +128,36 @@ final marcasInventarioProvider =
       .select('id, nombre')
       .order('nombre');
   return data;
+});
+
+// Providers para el diálogo IngresoExterno
+final marcasExternoProvider = FutureProvider<List<Marca>>((ref) async {
+  final data = await Supabase.instance.client
+      .from('marcas')
+      .select()
+      .eq('activo', true)
+      .order('nombre');
+  return data.map((e) => Marca.fromJson(e)).toList();
+});
+
+final modelosExternoProvider =
+    FutureProvider.family<List<Modelo>, String>((ref, marcaId) async {
+  final data = await Supabase.instance.client
+      .from('modelos')
+      .select()
+      .eq('marca_id', marcaId)
+      .eq('activo', true)
+      .order('nombre');
+  return data.map((e) => Modelo.fromJson(e)).toList();
+});
+
+final proveedoresExternoProvider = FutureProvider<List<Proveedor>>((ref) async {
+  final data = await Supabase.instance.client
+      .from('proveedores')
+      .select()
+      .eq('activo', true)
+      .order('nombre');
+  return data.map((e) => Proveedor.fromJson(e)).toList();
 });
 
 // ─── Screen ──────────────────────────────────────────────────
@@ -1164,7 +1196,10 @@ class _IngresoExternoDialogState
   final _formKey = GlobalKey<FormState>();
   String? _parteId;
   String? _ubicacionId;
-  final _proveedorCtrl = TextEditingController();
+  String? _extMarcaId;
+  String? _extModeloId;
+  String? _proveedorId;
+  final _extAnioCtrl = TextEditingController();
   final _costoCtrl = TextEditingController();
   final _precioCtrl = TextEditingController();
   final _notasCtrl = TextEditingController();
@@ -1183,7 +1218,7 @@ class _IngresoExternoDialogState
 
   @override
   void dispose() {
-    _proveedorCtrl.dispose();
+    _extAnioCtrl.dispose();
     _costoCtrl.dispose();
     _precioCtrl.dispose();
     _notasCtrl.dispose();
@@ -1194,11 +1229,13 @@ class _IngresoExternoDialogState
   Widget build(BuildContext context) {
     final partes = ref.watch(_partesProvider);
     final ubicaciones = ref.watch(ubicacionesInventarioProvider);
+    final marcas = ref.watch(marcasExternoProvider);
+    final proveedores = ref.watch(proveedoresExternoProvider);
 
     return AlertDialog(
       title: const Text('Ingreso Externo de Repuesto'),
       content: SizedBox(
-        width: 400,
+        width: 450,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -1230,17 +1267,111 @@ class _IngresoExternoDialogState
                   loading: () => const LinearProgressIndicator(),
                   error: (e, _) => Text('Error: $e'),
                 ),
+                const SizedBox(height: 16),
+
+                // --- Vehículo de origen del repuesto ---
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Vehículo de origen',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Marca del vehículo
+                marcas.when(
+                  data: (list) => DropdownButtonFormField<String>(
+                    initialValue: _extMarcaId,
+                    decoration: const InputDecoration(
+                      labelText: 'Marca del vehículo',
+                      isDense: true,
+                    ),
+                    isExpanded: true,
+                    items: list
+                        .map((m) => DropdownMenuItem(
+                            value: m.id, child: Text(m.nombre)))
+                        .toList(),
+                    onChanged: (v) => setState(() {
+                      _extMarcaId = v;
+                      _extModeloId = null;
+                    }),
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, _) => Text('Error: $e'),
+                ),
                 const SizedBox(height: 12),
 
-                // Proveedor
+                // Modelo del vehículo (dependiente de marca)
+                if (_extMarcaId != null)
+                  ref.watch(modelosExternoProvider(_extMarcaId!)).when(
+                        data: (list) => DropdownButtonFormField<String>(
+                          initialValue: _extModeloId,
+                          decoration: const InputDecoration(
+                            labelText: 'Modelo del vehículo',
+                            isDense: true,
+                          ),
+                          isExpanded: true,
+                          items: list
+                              .map((m) => DropdownMenuItem(
+                                  value: m.id, child: Text(m.nombre)))
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => _extModeloId = v),
+                        ),
+                        loading: () => const LinearProgressIndicator(),
+                        error: (e, _) => Text('Error: $e'),
+                      ),
+                if (_extMarcaId != null) const SizedBox(height: 12),
+
+                // Año del vehículo
                 TextFormField(
-                  controller: _proveedorCtrl,
+                  controller: _extAnioCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Proveedor *',
+                    labelText: 'Año del vehículo',
                     isDense: true,
                   ),
-                  validator: (v) =>
-                      v == null || v.isEmpty ? 'Requerido' : null,
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 16),
+
+                // --- Datos de compra ---
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Datos de compra',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Proveedor (dropdown)
+                proveedores.when(
+                  data: (list) => DropdownButtonFormField<String>(
+                    initialValue: _proveedorId,
+                    decoration: const InputDecoration(
+                      labelText: 'Proveedor *',
+                      isDense: true,
+                    ),
+                    isExpanded: true,
+                    items: list
+                        .map((p) => DropdownMenuItem(
+                            value: p.id, child: Text(p.nombre)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _proveedorId = v),
+                    validator: (v) =>
+                        v == null ? 'Seleccione proveedor' : null,
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, _) => Text('Error: $e'),
                 ),
                 const SizedBox(height: 12),
 
@@ -1342,6 +1473,14 @@ class _IngresoExternoDialogState
       final auth = ref.read(authProvider);
       final userId = auth.perfil!.id;
 
+      // Obtener nombre del proveedor para notas
+      String proveedorNombre = '';
+      if (_proveedorId != null) {
+        final provList = ref.read(proveedoresExternoProvider).value ?? [];
+        final prov = provList.where((p) => p.id == _proveedorId).firstOrNull;
+        proveedorNombre = prov?.nombre ?? '';
+      }
+
       // Crear repuesto externo
       final repuesto = await supabase.from('repuestos').insert({
         'catalogo_parte_id': _parteId,
@@ -1351,9 +1490,14 @@ class _IngresoExternoDialogState
             ? double.parse(_precioCtrl.text)
             : null,
         'origen': 'externo',
-        'proveedor_externo': _proveedorCtrl.text,
+        'proveedor_externo': proveedorNombre,
         'costo_externo': double.parse(_costoCtrl.text),
         'notas': _notasCtrl.text.isEmpty ? null : _notasCtrl.text,
+        'ext_marca_id': _extMarcaId,
+        'ext_modelo_id': _extModeloId,
+        'ext_anio': _extAnioCtrl.text.isNotEmpty
+            ? int.parse(_extAnioCtrl.text)
+            : null,
       }).select('id').single();
 
       // Crear movimiento
@@ -1363,7 +1507,7 @@ class _IngresoExternoDialogState
         'fecha': DateTime.now().toIso8601String(),
         'usuario_id': userId,
         'ubicacion_destino_id': _ubicacionId,
-        'notas': 'Ingreso externo: ${_proveedorCtrl.text}',
+        'notas': 'Ingreso externo: $proveedorNombre',
       });
 
       if (mounted) {

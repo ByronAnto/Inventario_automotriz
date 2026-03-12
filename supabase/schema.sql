@@ -88,7 +88,46 @@ CREATE TABLE IF NOT EXISTS ubicaciones (
 );
 
 -- ============================================
--- 8. VEHÍCULOS
+-- 8. PROVEEDORES
+-- ============================================
+CREATE TABLE IF NOT EXISTS proveedores (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre TEXT NOT NULL UNIQUE,
+  telefono TEXT,
+  direccion TEXT,
+  notas TEXT,
+  activo BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ============================================
+-- 9. ESTADOS DE VEHÍCULO (dinámico)
+-- ============================================
+CREATE TABLE IF NOT EXISTS estados_vehiculo (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre TEXT NOT NULL UNIQUE,
+  valor TEXT NOT NULL UNIQUE,
+  descripcion TEXT,
+  color TEXT DEFAULT '#757575',
+  activo BOOLEAN NOT NULL DEFAULT true,
+  orden INT NOT NULL DEFAULT 0
+);
+
+-- ============================================
+-- 10. CONFIGURACIÓN DE CAMPOS (obligatorio/opcional)
+-- ============================================
+CREATE TABLE IF NOT EXISTS campo_configuracion (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre_campo TEXT NOT NULL,
+  tabla TEXT NOT NULL,
+  etiqueta TEXT NOT NULL,
+  obligatorio BOOLEAN NOT NULL DEFAULT false,
+  activo BOOLEAN NOT NULL DEFAULT true,
+  UNIQUE(nombre_campo, tabla)
+);
+
+-- ============================================
+-- 11. VEHÍCULOS
 -- ============================================
 CREATE TABLE IF NOT EXISTS vehiculos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -99,10 +138,14 @@ CREATE TABLE IF NOT EXISTS vehiculos (
   color TEXT,
   vin TEXT,
   placa TEXT,
-  estado TEXT NOT NULL DEFAULT 'incompleto' CHECK (estado IN ('siniestrado', 'dado_de_baja', 'incompleto')),
+  estado TEXT NOT NULL DEFAULT 'incompleto',
   completitud TEXT NOT NULL DEFAULT 'completo' CHECK (completitud IN ('completo', 'incompleto')),
   costo_compra NUMERIC(12,2) NOT NULL DEFAULT 0,
   proveedor TEXT,
+  proveedor_id UUID REFERENCES proveedores(id),
+  valor_grua NUMERIC(12,2),
+  comision_viaje NUMERIC(12,2),
+  comprador_id UUID REFERENCES perfiles(id),
   fecha_ingreso DATE NOT NULL DEFAULT CURRENT_DATE,
   notas TEXT,
   fotos TEXT[],
@@ -113,7 +156,7 @@ CREATE TABLE IF NOT EXISTS vehiculos (
 );
 
 -- ============================================
--- 9. REPUESTOS (inventario de partes)
+-- 12. REPUESTOS (inventario de partes)
 -- ============================================
 CREATE TABLE IF NOT EXISTS repuestos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -125,6 +168,10 @@ CREATE TABLE IF NOT EXISTS repuestos (
   origen TEXT NOT NULL DEFAULT 'vehiculo' CHECK (origen IN ('vehiculo', 'externo')),
   proveedor_externo TEXT,
   costo_externo NUMERIC(12,2),
+  -- Info del vehículo de origen para repuestos externos
+  ext_marca_id UUID REFERENCES marcas(id),
+  ext_modelo_id UUID REFERENCES modelos(id),
+  ext_anio INT,
   notas TEXT,
   fotos TEXT[],
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -205,11 +252,15 @@ CREATE INDEX IF NOT EXISTS idx_vehiculos_modelo_id ON vehiculos(modelo_id);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo_vehiculo_id ON vehiculos(tipo_vehiculo_id);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_ubicacion_id ON vehiculos(ubicacion_id);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_estado ON vehiculos(estado);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_proveedor_id ON vehiculos(proveedor_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculos_comprador_id ON vehiculos(comprador_id);
 CREATE INDEX IF NOT EXISTS idx_repuestos_vehiculo_id ON repuestos(vehiculo_id);
 CREATE INDEX IF NOT EXISTS idx_repuestos_catalogo_parte_id ON repuestos(catalogo_parte_id);
 CREATE INDEX IF NOT EXISTS idx_repuestos_estado ON repuestos(estado);
 CREATE INDEX IF NOT EXISTS idx_repuestos_ubicacion_id ON repuestos(ubicacion_id);
 CREATE INDEX IF NOT EXISTS idx_repuestos_origen ON repuestos(origen);
+CREATE INDEX IF NOT EXISTS idx_repuestos_ext_marca_id ON repuestos(ext_marca_id);
+CREATE INDEX IF NOT EXISTS idx_repuestos_ext_modelo_id ON repuestos(ext_modelo_id);
 CREATE INDEX IF NOT EXISTS idx_ventas_vendedor_id ON ventas(vendedor_id);
 CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
 CREATE INDEX IF NOT EXISTS idx_venta_detalle_venta_id ON venta_detalle(venta_id);
@@ -231,6 +282,9 @@ ALTER TABLE plantilla_tipo_vehiculo ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marcas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE modelos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ubicaciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proveedores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estados_vehiculo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE campo_configuracion ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vehiculos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE repuestos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ventas ENABLE ROW LEVEL SECURITY;
@@ -324,6 +378,36 @@ DROP POLICY IF EXISTS "ubicaciones_update" ON ubicaciones;
 CREATE POLICY "ubicaciones_update" ON ubicaciones FOR UPDATE USING (get_user_role() = 'administrador');
 DROP POLICY IF EXISTS "ubicaciones_delete" ON ubicaciones;
 CREATE POLICY "ubicaciones_delete" ON ubicaciones FOR DELETE USING (get_user_role() = 'administrador');
+
+-- proveedores
+DROP POLICY IF EXISTS "proveedores_select" ON proveedores;
+CREATE POLICY "proveedores_select" ON proveedores FOR SELECT USING (true);
+DROP POLICY IF EXISTS "proveedores_insert" ON proveedores;
+CREATE POLICY "proveedores_insert" ON proveedores FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "proveedores_update" ON proveedores;
+CREATE POLICY "proveedores_update" ON proveedores FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "proveedores_delete" ON proveedores;
+CREATE POLICY "proveedores_delete" ON proveedores FOR DELETE USING (get_user_role() = 'administrador');
+
+-- estados_vehiculo
+DROP POLICY IF EXISTS "estados_vehiculo_select" ON estados_vehiculo;
+CREATE POLICY "estados_vehiculo_select" ON estados_vehiculo FOR SELECT USING (true);
+DROP POLICY IF EXISTS "estados_vehiculo_insert" ON estados_vehiculo;
+CREATE POLICY "estados_vehiculo_insert" ON estados_vehiculo FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "estados_vehiculo_update" ON estados_vehiculo;
+CREATE POLICY "estados_vehiculo_update" ON estados_vehiculo FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "estados_vehiculo_delete" ON estados_vehiculo;
+CREATE POLICY "estados_vehiculo_delete" ON estados_vehiculo FOR DELETE USING (get_user_role() = 'administrador');
+
+-- campo_configuracion
+DROP POLICY IF EXISTS "campo_configuracion_select" ON campo_configuracion;
+CREATE POLICY "campo_configuracion_select" ON campo_configuracion FOR SELECT USING (true);
+DROP POLICY IF EXISTS "campo_configuracion_insert" ON campo_configuracion;
+CREATE POLICY "campo_configuracion_insert" ON campo_configuracion FOR INSERT WITH CHECK (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "campo_configuracion_update" ON campo_configuracion;
+CREATE POLICY "campo_configuracion_update" ON campo_configuracion FOR UPDATE USING (get_user_role() = 'administrador');
+DROP POLICY IF EXISTS "campo_configuracion_delete" ON campo_configuracion;
+CREATE POLICY "campo_configuracion_delete" ON campo_configuracion FOR DELETE USING (get_user_role() = 'administrador');
 
 -- ---- DATOS OPERATIVOS (lectura todos, escritura admin + vendedor) ----
 -- vehiculos
@@ -480,6 +564,60 @@ ON CONFLICT (marca_id, nombre) DO NOTHING;
 INSERT INTO ubicaciones (nombre, direccion) VALUES
   ('Bodega Principal', 'Dirección de la bodega principal')
 ON CONFLICT (nombre) DO NOTHING;
+
+-- ============================================
+-- SEED DATA: ESTADOS DE VEHÍCULO
+-- ============================================
+INSERT INTO estados_vehiculo (nombre, valor, descripcion, color, orden) VALUES
+  ('Siniestrado', 'siniestrado', 'Vehículo siniestrado', '#F44336', 1),
+  ('Dado de baja', 'dado_de_baja', 'Vehículo dado de baja', '#9E9E9E', 2),
+  ('Incompleto', 'incompleto', 'Vehículo con registro incompleto', '#FF9800', 3),
+  ('En remate', 'remate', 'Vehículo en remate', '#2196F3', 4),
+  ('En patio', 'patio', 'Vehículo en patio', '#4CAF50', 5),
+  ('En taller', 'taller', 'Vehículo en taller', '#FF5722', 6),
+  ('Con dueño', 'dueno', 'Vehículo con dueño', '#673AB7', 7)
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ============================================
+-- SEED DATA: PROVEEDORES
+-- ============================================
+INSERT INTO proveedores (nombre) VALUES
+  ('Proveedor General')
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ============================================
+-- SEED DATA: CONFIGURACIÓN DE CAMPOS (vehiculos)
+-- ============================================
+INSERT INTO campo_configuracion (nombre_campo, tabla, etiqueta, obligatorio) VALUES
+  ('marca_id', 'vehiculos', 'Marca', true),
+  ('modelo_id', 'vehiculos', 'Modelo', true),
+  ('tipo_vehiculo_id', 'vehiculos', 'Tipo de Vehículo', true),
+  ('anio', 'vehiculos', 'Año', true),
+  ('color', 'vehiculos', 'Color', false),
+  ('vin', 'vehiculos', 'VIN / Chasis', false),
+  ('placa', 'vehiculos', 'Placa', false),
+  ('costo_compra', 'vehiculos', 'Costo de Compra', true),
+  ('proveedor_id', 'vehiculos', 'Proveedor', false),
+  ('estado', 'vehiculos', 'Estado del Vehículo', true),
+  ('ubicacion_id', 'vehiculos', 'Ubicación', false),
+  ('valor_grua', 'vehiculos', 'Valor de Grúa', false),
+  ('comision_viaje', 'vehiculos', 'Comisión de Viaje', false),
+  ('comprador_id', 'vehiculos', 'Comprador', false),
+  ('notas', 'vehiculos', 'Notas', false)
+ON CONFLICT (nombre_campo, tabla) DO NOTHING;
+
+-- Configuración de campos para ingreso externo
+INSERT INTO campo_configuracion (nombre_campo, tabla, etiqueta, obligatorio) VALUES
+  ('catalogo_parte_id', 'repuestos_externo', 'Repuesto', true),
+  ('proveedor_externo', 'repuestos_externo', 'Proveedor', true),
+  ('costo_externo', 'repuestos_externo', 'Costo', true),
+  ('precio_sugerido', 'repuestos_externo', 'Precio Sugerido', false),
+  ('ext_marca_id', 'repuestos_externo', 'Marca del Vehículo', false),
+  ('ext_modelo_id', 'repuestos_externo', 'Modelo del Vehículo', false),
+  ('ext_anio', 'repuestos_externo', 'Año del Vehículo', false),
+  ('ubicacion_id', 'repuestos_externo', 'Ubicación', false),
+  ('notas', 'repuestos_externo', 'Notas', false)
+ON CONFLICT (nombre_campo, tabla) DO NOTHING;
 
 -- ============================================
 -- SEED DATA: CATÁLOGO DE PARTES (~190 partes)
@@ -769,6 +907,28 @@ ON CONFLICT (tipo_vehiculo_id, parte_id) DO NOTHING;
 -- CREATE POLICY "Public read"
 -- ON storage.objects FOR SELECT
 -- USING (bucket_id = 'vehiculos-fotos');
+
+-- ============================================
+-- TRIGGERS: Validación de stock en ventas
+-- ============================================
+
+-- Trigger: Prevenir venta de repuestos no disponibles
+CREATE OR REPLACE FUNCTION validar_stock_venta()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Verificar que el repuesto esté disponible
+  IF (SELECT estado FROM repuestos WHERE id = NEW.repuesto_id) != 'disponible' THEN
+    RAISE EXCEPTION 'El repuesto % ya no está disponible para venta', NEW.repuesto_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_validar_stock_venta ON venta_detalle;
+CREATE TRIGGER trg_validar_stock_venta
+  BEFORE INSERT ON venta_detalle
+  FOR EACH ROW
+  EXECUTE FUNCTION validar_stock_venta();
 
 -- ============================================
 -- FIN DEL SCHEMA

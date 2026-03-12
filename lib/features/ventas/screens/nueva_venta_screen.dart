@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/models/repuesto.dart';
 import '../../../data/providers/auth_provider.dart';
+import 'ventas_screen.dart';
 
 // Provider: repuestos disponibles para venta
 final repuestosDisponiblesProvider = FutureProvider<List<Repuesto>>((ref) async {
@@ -425,7 +426,61 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
       final auth = ref.read(authProvider);
       final vendedorId = auth.perfil!.id;
 
-      // Crear venta
+      // ── Validar stock: verificar que todos estén disponibles ──
+      final repuestoIds = _carrito.keys.toList();
+      final stockCheck = await supabase
+          .from('repuestos')
+          .select('id, estado, catalogo_partes(nombre)')
+          .inFilter('id', repuestoIds);
+
+      final noDisponibles = <String>[];
+      for (final r in stockCheck) {
+        if (r['estado'] != 'disponible') {
+          final nombre = r['catalogo_partes']?['nombre'] ?? r['id'];
+          noDisponibles.add('$nombre (${r['estado']})');
+        }
+      }
+
+      if (noDisponibles.isNotEmpty) {
+        if (mounted) {
+          // Quitar del carrito los no disponibles
+          for (final r in stockCheck) {
+            if (r['estado'] != 'disponible') {
+              setState(() => _carrito.remove(r['id']));
+            }
+          }
+          ref.invalidate(repuestosDisponiblesProvider);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Los siguientes repuestos ya NO están disponibles y fueron removidos del carrito:\n${noDisponibles.join(', ')}',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+
+      // ── Primero marcar repuestos como vendidos (antes de crear la venta) ──
+      for (final repuestoId in repuestoIds) {
+        final updated = await supabase
+            .from('repuestos')
+            .update({'estado': 'vendido'})
+            .eq('id', repuestoId)
+            .eq('estado', 'disponible') // Solo actualiza si sigue disponible
+            .select('id');
+
+        if (updated.isEmpty) {
+          // Alguien más vendió este repuesto entre la verificación y ahora
+          throw Exception(
+              'El repuesto ${_carrito[repuestoId]?.nombre} ya fue vendido por otro usuario');
+        }
+      }
+
+      // ── Crear venta ──
       final ventaData = await supabase.from('ventas').insert({
         'fecha': DateTime.now().toIso8601String(),
         'vendedor_id': vendedorId,
@@ -442,7 +497,7 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
 
       final ventaId = ventaData['id'] as String;
 
-      // Crear detalles de venta
+      // ── Crear detalles de venta ──
       final detalles = _carrito.entries.map((entry) => {
             'venta_id': ventaId,
             'repuesto_id': entry.key,
@@ -451,13 +506,8 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
 
       await supabase.from('venta_detalle').insert(detalles);
 
-      // Actualizar estado de repuestos a "vendido"
-      for (final repuestoId in _carrito.keys) {
-        await supabase
-            .from('repuestos')
-            .update({'estado': 'vendido'}).eq('id', repuestoId);
-
-        // Registrar movimiento de venta
+      // ── Registrar movimientos ──
+      for (final repuestoId in repuestoIds) {
         await supabase.from('movimientos').insert({
           'repuesto_id': repuestoId,
           'tipo': 'venta',
@@ -467,6 +517,10 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
           'notas': 'Venta registrada',
         });
       }
+
+      // ── Invalidar providers para refrescar datos ──
+      ref.invalidate(repuestosDisponiblesProvider);
+      ref.invalidate(ventasProvider);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

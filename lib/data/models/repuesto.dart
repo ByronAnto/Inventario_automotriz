@@ -12,6 +12,11 @@ class Repuesto {
   final List<String>? fotos;
   final DateTime createdAt;
 
+  // Campos de vehículo externo
+  final String? extMarcaId;
+  final String? extModeloId;
+  final int? extAnio;
+
   // Relaciones cargadas
   final String? parteNombre;
   final String? parteCategoria;
@@ -20,6 +25,8 @@ class Repuesto {
   final String? vehiculoMarca;
   final String? vehiculoModelo;
   final int? vehiculoAnio;
+  final String? extMarcaNombre;
+  final String? extModeloNombre;
 
   Repuesto({
     required this.id,
@@ -34,6 +41,9 @@ class Repuesto {
     this.notas,
     this.fotos,
     required this.createdAt,
+    this.extMarcaId,
+    this.extModeloId,
+    this.extAnio,
     this.parteNombre,
     this.parteCategoria,
     this.ubicacionNombre,
@@ -41,6 +51,8 @@ class Repuesto {
     this.vehiculoMarca,
     this.vehiculoModelo,
     this.vehiculoAnio,
+    this.extMarcaNombre,
+    this.extModeloNombre,
   });
 
   factory Repuesto.fromJson(Map<String, dynamic> json) {
@@ -60,6 +72,10 @@ class Repuesto {
       vModelo = modeloData?['nombre'] as String?;
     }
 
+    // Extraer datos de marca/modelo externo
+    final extMarca = json['ext_marca:marcas'] as Map<String, dynamic>?;
+    final extModelo = json['ext_modelo:modelos'] as Map<String, dynamic>?;
+
     return Repuesto(
       id: json['id'] as String,
       vehiculoId: json['vehiculo_id'] as String?,
@@ -73,6 +89,9 @@ class Repuesto {
       notas: json['notas'] as String?,
       fotos: (json['fotos'] as List<dynamic>?)?.map((e) => e as String).toList(),
       createdAt: DateTime.parse(json['created_at'] as String),
+      extMarcaId: json['ext_marca_id'] as String?,
+      extModeloId: json['ext_modelo_id'] as String?,
+      extAnio: json['ext_anio'] as int?,
       parteNombre: catalogo?['nombre'] as String?,
       parteCategoria: catalogo?['categoria'] as String?,
       ubicacionNombre: ubicacion?['nombre'] as String?,
@@ -80,6 +99,8 @@ class Repuesto {
       vehiculoModelo: vModelo,
       vehiculoAnio: vAnio,
       vehiculoNombre: vMarca != null ? '$vMarca $vModelo $vAnio' : null,
+      extMarcaNombre: extMarca?['nombre'] as String?,
+      extModeloNombre: extModelo?['nombre'] as String?,
     );
   }
 
@@ -95,6 +116,9 @@ class Repuesto {
       'costo_externo': costoExterno,
       'notas': notas,
       'fotos': fotos,
+      'ext_marca_id': extMarcaId,
+      'ext_modelo_id': extModeloId,
+      'ext_anio': extAnio,
     };
   }
 
@@ -111,6 +135,9 @@ class Repuesto {
     String? notas,
     List<String>? fotos,
     DateTime? createdAt,
+    String? extMarcaId,
+    String? extModeloId,
+    int? extAnio,
   }) {
     return Repuesto(
       id: id ?? this.id,
@@ -125,6 +152,9 @@ class Repuesto {
       notas: notas ?? this.notas,
       fotos: fotos ?? this.fotos,
       createdAt: createdAt ?? this.createdAt,
+      extMarcaId: extMarcaId ?? this.extMarcaId,
+      extModeloId: extModeloId ?? this.extModeloId,
+      extAnio: extAnio ?? this.extAnio,
       parteNombre: parteNombre,
       parteCategoria: parteCategoria,
       ubicacionNombre: ubicacionNombre,
@@ -132,6 +162,8 @@ class Repuesto {
       vehiculoModelo: vehiculoModelo,
       vehiculoAnio: vehiculoAnio,
       vehiculoNombre: vehiculoNombre,
+      extMarcaNombre: extMarcaNombre,
+      extModeloNombre: extModeloNombre,
     );
   }
 }

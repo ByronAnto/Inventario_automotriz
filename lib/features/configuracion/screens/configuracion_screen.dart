@@ -5,6 +5,10 @@ import '../../../data/providers/auth_provider.dart';
 import '../../../data/models/catalogo_parte.dart';
 import '../../../data/models/perfil.dart';
 import '../../../data/models/tipo_vehiculo.dart';
+import '../../../data/models/marca_modelo.dart';
+import '../../../data/models/proveedor.dart';
+import '../../../data/models/estado_vehiculo.dart';
+import '../../../data/models/campo_configuracion.dart';
 import '../../../core/constants/app_constants.dart';
 
 // Provider de perfiles (usuarios)
@@ -39,6 +43,58 @@ final catalogoPartesProvider = FutureProvider<List<CatalogoParte>>((ref) async {
   return data.map((e) => CatalogoParte.fromJson(e)).toList();
 });
 
+// Provider de marcas (config)
+final marcasConfigProvider = FutureProvider<List<Marca>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase.from('marcas').select().order('nombre');
+  return data.map((e) => Marca.fromJson(e)).toList();
+});
+
+// Provider de modelos (config)
+final modelosConfigProvider =
+    FutureProvider.family<List<Modelo>, String>((ref, marcaId) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase
+      .from('modelos')
+      .select()
+      .eq('marca_id', marcaId)
+      .order('nombre');
+  return data.map((e) => Modelo.fromJson(e)).toList();
+});
+
+// Provider de proveedores
+final proveedoresConfigProvider = FutureProvider<List<Proveedor>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase
+      .from('proveedores')
+      .select()
+      .order('nombre');
+  return data.map((e) => Proveedor.fromJson(e)).toList();
+});
+
+// Provider de estados de vehículo
+final estadosVehiculoConfigProvider =
+    FutureProvider<List<EstadoVehiculo>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase
+      .from('estados_vehiculo')
+      .select()
+      .order('orden');
+  return data.map((e) => EstadoVehiculo.fromJson(e)).toList();
+});
+
+// Provider de campos configurables
+final campoConfiguracionProvider =
+    FutureProvider<List<CampoConfiguracion>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase
+      .from('campo_configuracion')
+      .select()
+      .order('tabla')
+      .order('etiqueta');
+  return data.map((e) => CampoConfiguracion.fromJson(e)).toList();
+});
+
 // Provider de plantilla por tipo de vehículo
 final plantillaTipoProvider =
     FutureProvider.family<List<PlantillaTipoVehiculo>, String>((ref, tipoId) async {
@@ -66,7 +122,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 9, vsync: this);
   }
 
   @override
@@ -88,6 +144,10 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
             Tab(icon: Icon(Icons.category), text: 'Catálogo de Partes'),
             Tab(icon: Icon(Icons.directions_car), text: 'Tipos de Vehículo'),
             Tab(icon: Icon(Icons.tune), text: 'Plantillas'),
+            Tab(icon: Icon(Icons.branding_watermark), text: 'Marcas / Modelos'),
+            Tab(icon: Icon(Icons.local_shipping), text: 'Proveedores'),
+            Tab(icon: Icon(Icons.flag), text: 'Estados Vehículo'),
+            Tab(icon: Icon(Icons.toggle_on), text: 'Campos'),
             Tab(icon: Icon(Icons.dns), text: 'Servidor'),
           ],
         ),
@@ -99,6 +159,10 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
               _CatalogoPartesTab(),
               _TiposVehiculoTab(),
               _PlantillasTab(),
+              _MarcasModelosTab(),
+              _ProveedoresTab(),
+              _EstadosVehiculoTab(),
+              _CamposConfigTab(),
               _ServidorTab(),
             ],
           ),
@@ -1514,6 +1578,981 @@ class _UsuariosTab extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ============================================
+// TAB: Marcas y Modelos
+// ============================================
+class _MarcasModelosTab extends ConsumerWidget {
+  const _MarcasModelosTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final marcas = ref.watch(marcasConfigProvider);
+
+    return marcas.when(
+      data: (lista) => Scaffold(
+        body: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: lista.length,
+          itemBuilder: (context, index) {
+            final marca = lista[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ExpansionTile(
+                leading: Icon(
+                  Icons.branding_watermark,
+                  color: marca.activo ? Colors.blue : Colors.grey,
+                ),
+                title: Text(
+                  marca.nombre,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: marca.activo ? null : Colors.grey,
+                  ),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Switch(
+                      value: marca.activo,
+                      onChanged: (val) => _toggleMarca(ref, marca, val),
+                    ),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      onSelected: (action) {
+                        if (action == 'editar') {
+                          _showEditMarcaDialog(context, ref, marca);
+                        } else if (action == 'eliminar') {
+                          _confirmDeleteMarca(context, ref, marca);
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'editar',
+                          child: ListTile(
+                            leading: Icon(Icons.edit, size: 20),
+                            title: Text('Editar'),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'eliminar',
+                          child: ListTile(
+                            leading: Icon(Icons.delete, size: 20, color: Colors.red),
+                            title: Text('Eliminar', style: TextStyle(color: Colors.red)),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                children: [
+                  _ModelosListForMarca(marcaId: marca.id),
+                ],
+              ),
+            );
+          },
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _showAddMarcaDialog(context, ref),
+          child: const Icon(Icons.add),
+        ),
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+
+  Future<void> _toggleMarca(WidgetRef ref, Marca marca, bool value) async {
+    final supabase = ref.read(supabaseClientProvider);
+    await supabase.from('marcas').update({'activo': value}).eq('id', marca.id);
+    ref.invalidate(marcasConfigProvider);
+  }
+
+  void _showAddMarcaDialog(BuildContext context, WidgetRef ref) {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Agregar Marca'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Nombre de la marca'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (ctrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase.from('marcas').insert({'nombre': ctrl.text.trim()});
+                ref.invalidate(marcasConfigProvider);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditMarcaDialog(BuildContext context, WidgetRef ref, Marca marca) {
+    final ctrl = TextEditingController(text: marca.nombre);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar Marca'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Nombre'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (ctrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase
+                    .from('marcas')
+                    .update({'nombre': ctrl.text.trim()}).eq('id', marca.id);
+                ref.invalidate(marcasConfigProvider);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteMarca(BuildContext context, WidgetRef ref, Marca marca) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Marca'),
+        content: Text(
+          '¿Eliminar "${marca.nombre}"?\n\nTambién se eliminarán todos sus modelos.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('modelos').delete().eq('marca_id', marca.id);
+              await supabase.from('marcas').delete().eq('id', marca.id);
+              ref.invalidate(marcasConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModelosListForMarca extends ConsumerWidget {
+  final String marcaId;
+  const _ModelosListForMarca({required this.marcaId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final modelos = ref.watch(modelosConfigProvider(marcaId));
+
+    return modelos.when(
+      data: (lista) {
+        return Column(
+          children: [
+            ...lista.map((modelo) => ListTile(
+                  title: Text(modelo.nombre),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Switch(
+                        value: modelo.activo,
+                        onChanged: (val) async {
+                          final supabase = ref.read(supabaseClientProvider);
+                          await supabase
+                              .from('modelos')
+                              .update({'activo': val}).eq('id', modelo.id);
+                          ref.invalidate(modelosConfigProvider(marcaId));
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 18),
+                        onPressed: () =>
+                            _showEditModeloDialog(context, ref, modelo),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                        onPressed: () =>
+                            _confirmDeleteModelo(context, ref, modelo),
+                      ),
+                    ],
+                  ),
+                )),
+            ListTile(
+              leading: const Icon(Icons.add_circle, color: Colors.green),
+              title: const Text('Agregar modelo'),
+              onTap: () => _showAddModeloDialog(context, ref),
+            ),
+          ],
+        );
+      },
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: LinearProgressIndicator(),
+      ),
+      error: (e, _) => Text('Error: $e'),
+    );
+  }
+
+  void _showAddModeloDialog(BuildContext context, WidgetRef ref) {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Agregar Modelo'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Nombre del modelo'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (ctrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase.from('modelos').insert({
+                  'marca_id': marcaId,
+                  'nombre': ctrl.text.trim(),
+                });
+                ref.invalidate(modelosConfigProvider(marcaId));
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditModeloDialog(
+      BuildContext context, WidgetRef ref, Modelo modelo) {
+    final ctrl = TextEditingController(text: modelo.nombre);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar Modelo'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Nombre'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (ctrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase
+                    .from('modelos')
+                    .update({'nombre': ctrl.text.trim()}).eq('id', modelo.id);
+                ref.invalidate(modelosConfigProvider(marcaId));
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteModelo(
+      BuildContext context, WidgetRef ref, Modelo modelo) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Modelo'),
+        content: Text('¿Eliminar "${modelo.nombre}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('modelos').delete().eq('id', modelo.id);
+              ref.invalidate(modelosConfigProvider(marcaId));
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================
+// TAB: Proveedores
+// ============================================
+class _ProveedoresTab extends ConsumerWidget {
+  const _ProveedoresTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final proveedores = ref.watch(proveedoresConfigProvider);
+
+    return proveedores.when(
+      data: (lista) => Scaffold(
+        body: lista.isEmpty
+            ? const Center(child: Text('No hay proveedores registrados.'))
+            : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: lista.length,
+                itemBuilder: (context, index) {
+                  final prov = lista[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.local_shipping,
+                        color: prov.activo ? Colors.blue : Colors.grey,
+                      ),
+                      title: Text(
+                        prov.nombre,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: prov.activo ? null : Colors.grey,
+                        ),
+                      ),
+                      subtitle: Text([
+                        if (prov.telefono != null && prov.telefono!.isNotEmpty)
+                          'Tel: ${prov.telefono}',
+                        if (prov.direccion != null && prov.direccion!.isNotEmpty)
+                          prov.direccion!,
+                      ].join(' | ')),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Switch(
+                            value: prov.activo,
+                            onChanged: (val) => _toggleProveedor(ref, prov, val),
+                          ),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 20),
+                            onSelected: (action) {
+                              if (action == 'editar') {
+                                _showEditDialog(context, ref, prov);
+                              } else if (action == 'eliminar') {
+                                _confirmDelete(context, ref, prov);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'editar',
+                                child: ListTile(
+                                  leading: Icon(Icons.edit, size: 20),
+                                  title: Text('Editar'),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'eliminar',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete, size: 20, color: Colors.red),
+                                  title: Text('Eliminar',
+                                      style: TextStyle(color: Colors.red)),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _showAddDialog(context, ref),
+          child: const Icon(Icons.add),
+        ),
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+
+  Future<void> _toggleProveedor(
+      WidgetRef ref, Proveedor prov, bool value) async {
+    final supabase = ref.read(supabaseClientProvider);
+    await supabase
+        .from('proveedores')
+        .update({'activo': value}).eq('id', prov.id);
+    ref.invalidate(proveedoresConfigProvider);
+  }
+
+  void _showAddDialog(BuildContext context, WidgetRef ref) {
+    final nombreCtrl = TextEditingController();
+    final telefonoCtrl = TextEditingController();
+    final direccionCtrl = TextEditingController();
+    final notasCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Agregar Proveedor'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: telefonoCtrl,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: direccionCtrl,
+                decoration: const InputDecoration(labelText: 'Dirección'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notasCtrl,
+                decoration: const InputDecoration(labelText: 'Notas'),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nombreCtrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase.from('proveedores').insert({
+                  'nombre': nombreCtrl.text.trim(),
+                  'telefono': telefonoCtrl.text.trim().isNotEmpty
+                      ? telefonoCtrl.text.trim()
+                      : null,
+                  'direccion': direccionCtrl.text.trim().isNotEmpty
+                      ? direccionCtrl.text.trim()
+                      : null,
+                  'notas': notasCtrl.text.trim().isNotEmpty
+                      ? notasCtrl.text.trim()
+                      : null,
+                });
+                ref.invalidate(proveedoresConfigProvider);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref, Proveedor prov) {
+    final nombreCtrl = TextEditingController(text: prov.nombre);
+    final telefonoCtrl = TextEditingController(text: prov.telefono ?? '');
+    final direccionCtrl = TextEditingController(text: prov.direccion ?? '');
+    final notasCtrl = TextEditingController(text: prov.notas ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar Proveedor'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: telefonoCtrl,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: direccionCtrl,
+                decoration: const InputDecoration(labelText: 'Dirección'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notasCtrl,
+                decoration: const InputDecoration(labelText: 'Notas'),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('proveedores').update({
+                'nombre': nombreCtrl.text.trim(),
+                'telefono': telefonoCtrl.text.trim().isNotEmpty
+                    ? telefonoCtrl.text.trim()
+                    : null,
+                'direccion': direccionCtrl.text.trim().isNotEmpty
+                    ? direccionCtrl.text.trim()
+                    : null,
+                'notas': notasCtrl.text.trim().isNotEmpty
+                    ? notasCtrl.text.trim()
+                    : null,
+              }).eq('id', prov.id);
+              ref.invalidate(proveedoresConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, WidgetRef ref, Proveedor prov) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Proveedor'),
+        content: Text('¿Eliminar "${prov.nombre}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('proveedores').delete().eq('id', prov.id);
+              ref.invalidate(proveedoresConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================
+// TAB: Estados de Vehículo
+// ============================================
+class _EstadosVehiculoTab extends ConsumerWidget {
+  const _EstadosVehiculoTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final estados = ref.watch(estadosVehiculoConfigProvider);
+
+    return estados.when(
+      data: (lista) => Scaffold(
+        body: lista.isEmpty
+            ? const Center(child: Text('No hay estados configurados.'))
+            : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: lista.length,
+                itemBuilder: (context, index) {
+                  final est = lista[index];
+                  final color = _parseColor(est.color);
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: color,
+                        radius: 16,
+                        child: Text(
+                          '${est.orden}',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                      title: Text(
+                        est.nombre,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: est.activo ? null : Colors.grey,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Valor: ${est.valor}${est.descripcion != null ? ' - ${est.descripcion}' : ''}',
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Switch(
+                            value: est.activo,
+                            onChanged: (val) => _toggleEstado(ref, est, val),
+                          ),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 20),
+                            onSelected: (action) {
+                              if (action == 'editar') {
+                                _showEditDialog(context, ref, est);
+                              } else if (action == 'eliminar') {
+                                _confirmDelete(context, ref, est);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'editar',
+                                child: ListTile(
+                                  leading: Icon(Icons.edit, size: 20),
+                                  title: Text('Editar'),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'eliminar',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete, size: 20,
+                                      color: Colors.red),
+                                  title: Text('Eliminar',
+                                      style: TextStyle(color: Colors.red)),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _showAddDialog(context, ref),
+          child: const Icon(Icons.add),
+        ),
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+
+  Color _parseColor(String hex) {
+    try {
+      return Color(int.parse(hex.replaceFirst('#', '0xFF')));
+    } catch (_) {
+      return Colors.grey;
+    }
+  }
+
+  Future<void> _toggleEstado(
+      WidgetRef ref, EstadoVehiculo est, bool value) async {
+    final supabase = ref.read(supabaseClientProvider);
+    await supabase
+        .from('estados_vehiculo')
+        .update({'activo': value}).eq('id', est.id);
+    ref.invalidate(estadosVehiculoConfigProvider);
+  }
+
+  void _showAddDialog(BuildContext context, WidgetRef ref) {
+    final nombreCtrl = TextEditingController();
+    final valorCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final colorCtrl = TextEditingController(text: '#757575');
+    final ordenCtrl = TextEditingController(text: '0');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Agregar Estado'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration:
+                    const InputDecoration(labelText: 'Nombre (visible) *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: valorCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Valor (clave interna) *',
+                  helperText: 'Ej: siniestrado, remate, patio',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                decoration: const InputDecoration(labelText: 'Descripción'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: colorCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Color (hex)',
+                  helperText: 'Ej: #FF5722',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ordenCtrl,
+                decoration: const InputDecoration(labelText: 'Orden'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nombreCtrl.text.trim().isNotEmpty &&
+                  valorCtrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase.from('estados_vehiculo').insert({
+                  'nombre': nombreCtrl.text.trim(),
+                  'valor': valorCtrl.text.trim().toLowerCase().replaceAll(' ', '_'),
+                  'descripcion': descCtrl.text.trim().isNotEmpty
+                      ? descCtrl.text.trim()
+                      : null,
+                  'color': colorCtrl.text.trim(),
+                  'orden': int.tryParse(ordenCtrl.text) ?? 0,
+                });
+                ref.invalidate(estadosVehiculoConfigProvider);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog(
+      BuildContext context, WidgetRef ref, EstadoVehiculo est) {
+    final nombreCtrl = TextEditingController(text: est.nombre);
+    final valorCtrl = TextEditingController(text: est.valor);
+    final descCtrl = TextEditingController(text: est.descripcion ?? '');
+    final colorCtrl = TextEditingController(text: est.color);
+    final ordenCtrl = TextEditingController(text: est.orden.toString());
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar Estado'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: valorCtrl,
+                decoration: const InputDecoration(labelText: 'Valor *'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                decoration: const InputDecoration(labelText: 'Descripción'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: colorCtrl,
+                decoration: const InputDecoration(labelText: 'Color (hex)'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ordenCtrl,
+                decoration: const InputDecoration(labelText: 'Orden'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('estados_vehiculo').update({
+                'nombre': nombreCtrl.text.trim(),
+                'valor': valorCtrl.text.trim(),
+                'descripcion': descCtrl.text.trim().isNotEmpty
+                    ? descCtrl.text.trim()
+                    : null,
+                'color': colorCtrl.text.trim(),
+                'orden': int.tryParse(ordenCtrl.text) ?? 0,
+              }).eq('id', est.id);
+              ref.invalidate(estadosVehiculoConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(
+      BuildContext context, WidgetRef ref, EstadoVehiculo est) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Estado'),
+        content: Text('¿Eliminar "${est.nombre}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase
+                  .from('estados_vehiculo')
+                  .delete()
+                  .eq('id', est.id);
+              ref.invalidate(estadosVehiculoConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================
+// TAB: Configuración de Campos (Obligatorio/Opcional)
+// ============================================
+class _CamposConfigTab extends ConsumerWidget {
+  const _CamposConfigTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final campos = ref.watch(campoConfiguracionProvider);
+
+    return campos.when(
+      data: (lista) {
+        // Agrupar por tabla
+        final Map<String, List<CampoConfiguracion>> porTabla = {};
+        for (final c in lista) {
+          porTabla.putIfAbsent(c.tabla, () => []).add(c);
+        }
+
+        final tablaLabels = {
+          'vehiculos': 'Vehículos',
+          'repuestos_externo': 'Repuestos (Ingreso Externo)',
+        };
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color:
+                            Theme.of(context).colorScheme.onPrimaryContainer),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Configura qué campos son obligatorios u opcionales en los formularios.',
+                        style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...porTabla.entries.map((entry) {
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ExpansionTile(
+                  leading: const Icon(Icons.table_chart),
+                  title: Text(
+                    tablaLabels[entry.key] ?? entry.key,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    '${entry.value.where((c) => c.obligatorio).length}/${entry.value.length} obligatorios',
+                  ),
+                  initiallyExpanded: true,
+                  children: entry.value.map((campo) {
+                    return SwitchListTile(
+                      title: Text(campo.etiqueta),
+                      subtitle: Text(
+                        campo.obligatorio ? 'Obligatorio' : 'Opcional',
+                        style: TextStyle(
+                          color: campo.obligatorio
+                              ? Colors.red.shade700
+                              : Colors.grey,
+                          fontWeight: campo.obligatorio
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                      value: campo.obligatorio,
+                      activeThumbColor: Colors.red.shade700,
+                      onChanged: (val) async {
+                        final supabase = ref.read(supabaseClientProvider);
+                        await supabase
+                            .from('campo_configuracion')
+                            .update({'obligatorio': val}).eq('id', campo.id);
+                        ref.invalidate(campoConfiguracionProvider);
+                      },
+                    );
+                  }).toList(),
+                ),
+              );
+            }),
+          ],
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
     );
   }
 }

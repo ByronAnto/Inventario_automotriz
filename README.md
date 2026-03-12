@@ -17,6 +17,7 @@ Aplicación multiplataforma (Android APK + Web) para gestionar la compra de veh�
 - [Base de Datos](#-base-de-datos)
 - [Uso](#-uso)
 - [Despliegue](#-despliegue)
+- [CI/CD](#-cicd)
 - [Variables de Entorno](#-variables-de-entorno)
 - [Licencia](#-licencia)
 
@@ -42,6 +43,12 @@ Aplicación multiplataforma (Android APK + Web) para gestionar la compra de veh�
 - Precio sugerido y precio final por pieza
 - Ubicación física (multi-sucursal)
 - Código único por repuesto
+- Barra de resumen con contadores (total, disponible, vendido, atención)
+- Filtro por marca de vehículo y estado
+- Búsqueda ampliada (repuesto, vehículo, marca, ubicación)
+- Cards con info de vehículo y origen
+- Vista detalle con BottomSheet completo
+- Grid responsive en pantallas anchas
 
 ### Ventas
 - Registro de ventas con detalle por repuesto
@@ -55,10 +62,18 @@ Aplicación multiplataforma (Android APK + Web) para gestionar la compra de veh�
 - Inventario por estado y ubicación
 - Gráficos interactivos con fl_chart
 
+### Gestión de Usuarios (CRUD)
+- Alta de usuarios con rol y comisión configurable
+- Edición de nombre, email, teléfono, rol y porcentaje de comisión
+- Activar/desactivar usuarios
+- Creación vía API admin con `SERVICE_ROLE_KEY`
+
 ### Autenticación y Roles
-- **Administrador**: Acceso completo, gestión de usuarios
+- **Administrador**: Acceso completo, gestión de usuarios, configuración
 - **Vendedor**: Ventas, consulta de inventario
 - **Mecánico**: Inspecciones, registro de condiciones
+- Auto-creación de perfil en primer login
+- Primer usuario registrado recibe rol administrador automáticamente
 
 ---
 
@@ -122,7 +137,7 @@ Inventario_automotriz/
 │   ├── config/
 │   │   ├── app_theme.dart                 # Tema Material Design (colores, tipografía)
 │   │   ├── router.dart                    # Rutas con go_router y guards de auth
-│   │   └── supabase_config.dart           # Config de URL/key (SharedPreferences)
+│   │   └── supabase_config.dart           # Config de URL/key + SERVICE_ROLE_KEY (admin API)
 │   ├── core/
 │   │   └── constants/
 │   │       └── app_constants.dart         # Constantes globales
@@ -146,7 +161,7 @@ Inventario_automotriz/
 │       │       └── login_screen.dart      # Pantalla de login
 │       ├── configuracion/
 │       │   └── screens/
-│       │       └── configuracion_screen.dart  # Config de URL del backend
+│       │       └── configuracion_screen.dart  # Config: URL backend, Catálogo, Plantillas, Ubicaciones, Usuarios
 │       ├── dashboard/
 │       │   └── screens/
 │       │       └── dashboard_screen.dart  # Dashboard principal con métricas
@@ -172,9 +187,14 @@ Inventario_automotriz/
 │   └── schema.sql                         # Esquema completo (13 tablas + RLS + seed)
 ├── docker/
 │   ├── kong.yml                           # Configuración declarativa de Kong
-│   └── roles.sql                          # Roles y permisos de PostgreSQL
-├── docker-compose.yml                     # 9 servicios de Supabase
+│   ├── roles.sql                          # Roles y permisos de PostgreSQL
+│   ├── nginx.conf                         # Config Nginx con anti-cache para Flutter
+│   └── docker-entrypoint.sh               # Inyección de env vars en runtime
+├── Dockerfile                             # Multi-stage: Flutter build + Nginx Alpine
+├── docker-compose.yml                     # 10 servicios (Supabase + web-app)
+├── setup.sh                               # Deploy automático (detecta IP, genera .env, build, up)
 ├── init-schema.sh                         # Script para cargar esquema en la DB
+├── .github/workflows/flutter-web.yml      # CI/CD: build, test, Docker push, deploy
 ├── .env                                   # Variables de entorno (NO se sube a git)
 ├── android/                               # Configuración nativa Android
 ├── web/                                   # Configuración web (index.html, manifest)
@@ -355,6 +375,7 @@ Todas las tablas tienen RLS habilitado con políticas que permiten lectura a usu
 
 | Servicio | Puerto | URL |
 |---|---|---|
+| **Flutter Web App** | 3001 | `http://localhost:3001` |
 | **Kong API Gateway** | 8000 | `http://localhost:8000` |
 | **Supabase Studio** | 3100 | `http://localhost:3100` |
 | **PostgreSQL** | 5434 | `localhost:5434` |
@@ -398,6 +419,36 @@ Acceder desde otro dispositivo: `http://TU_IP:8080`
 
 ## 📦 Despliegue
 
+### Deploy Automático con `setup.sh`
+
+El script `setup.sh` automatiza completamente el despliegue en cualquier VM (Oracle Cloud, AWS, Azure, GCP):
+
+```bash
+chmod +x setup.sh
+./setup.sh              # Detecta IP pública automáticamente
+./setup.sh 203.0.113.50 # Usa una IP/dominio específico
+```
+
+**¿Qué hace `setup.sh`?**
+1. Detecta la IP pública de la VM (Oracle IMDS, AWS, Azure, GCP o servicios externos)
+2. Genera/actualiza `.env` con las URLs correctas
+3. Construye la imagen Docker del frontend web (`--no-cache`)
+4. Levanta los 10 servicios con `docker compose up -d --force-recreate`
+5. Carga el esquema SQL y crea usuario admin (si no existe)
+
+### Docker Web (Multi-stage)
+
+El `Dockerfile` compila Flutter Web y sirve con Nginx Alpine:
+
+```
+Etapa 1: ghcr.io/cirruslabs/flutter:3.41.2 → flutter build web --release
+Etapa 2: nginx:1.27-alpine → Sirve /usr/share/nginx/html
+```
+
+- **Placeholders en build**: `__SUPABASE_URL_PLACEHOLDER__` y `__SUPABASE_ANON_KEY_PLACEHOLDER__`
+- **Inyección en runtime**: `docker-entrypoint.sh` reemplaza los placeholders con env vars reales
+- **Anti-cache**: `main.dart.js`, `flutter_service_worker.js`, `flutter_bootstrap.js` y `version.json` usan `no-store, no-cache`
+
 ### Compilar APK (Android)
 
 ```bash
@@ -408,7 +459,7 @@ flutter build apk --release \
 
 El APK se genera en: `build/app/outputs/flutter-apk/app-release.apk`
 
-### Compilar Web
+### Compilar Web (manual)
 
 ```bash
 flutter build web --release \
@@ -417,6 +468,44 @@ flutter build web --release \
 ```
 
 Los archivos estáticos se generan en: `build/web/`
+
+---
+
+## 🔄 CI/CD
+
+### GitHub Actions Pipeline (`.github/workflows/flutter-web.yml`)
+
+Se ejecuta automáticamente en cada push a `main`:
+
+```
+┌──────────────┐
+│  build       │  Flutter analyze + test
+└──────┬───────┘
+       │
+  ┌────┴────┐
+  ▼         ▼
+┌────────┐ ┌───────────┐
+│ docker │ │ build-apk │  (en paralelo)
+│ (GHCR) │ │ (artifact)│
+└────┬───┘ └───────────┘
+     │
+     ▼
+┌──────────┐
+│  deploy  │  Self-hosted runner (Oracle VM ARM64)
+│  (rsync) │  → setup.sh → docker compose up
+└──────────┘
+```
+
+**4 jobs:**
+
+| Job | Runner | Descripción |
+|---|---|---|
+| `build` | `ubuntu-latest` | `flutter analyze` + `flutter test` |
+| `docker` | `ubuntu-latest` | Build Docker image → push a `ghcr.io` |
+| `build-apk` | `ubuntu-latest` | `flutter build apk --release` → artifact (30 días) |
+| `deploy` | `self-hosted, Linux, ARM64` | rsync al VM + `setup.sh` con `--no-cache` |
+
+**Self-hosted runner**: `oraclemv` en Oracle Cloud VM (ARM64)
 
 ---
 

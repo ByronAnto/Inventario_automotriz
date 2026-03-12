@@ -7,10 +7,14 @@ class Vehiculo {
   final String? color;
   final String? vin;
   final String? placa;
-  final String estado; // siniestrado, dado_de_baja, incompleto
+  final String estado; // dinámico desde estados_vehiculo
   final String completitud; // completo, incompleto
   final double costoCompra;
   final String? proveedor;
+  final String? proveedorId;
+  final double? valorGrua;
+  final double? comisionViaje;
+  final String? compradorId;
   final DateTime fechaIngreso;
   final String? notas;
   final List<String>? fotos;
@@ -24,6 +28,8 @@ class Vehiculo {
   final String? modeloNombre;
   final String? tipoVehiculoNombre;
   final String? ubicacionNombre;
+  final String? proveedorNombre;
+  final String? compradorNombre;
 
   Vehiculo({
     required this.id,
@@ -38,6 +44,10 @@ class Vehiculo {
     this.completitud = 'completo',
     required this.costoCompra,
     this.proveedor,
+    this.proveedorId,
+    this.valorGrua,
+    this.comisionViaje,
+    this.compradorId,
     required this.fechaIngreso,
     this.notas,
     this.fotos,
@@ -49,6 +59,8 @@ class Vehiculo {
     this.modeloNombre,
     this.tipoVehiculoNombre,
     this.ubicacionNombre,
+    this.proveedorNombre,
+    this.compradorNombre,
   });
 
   factory Vehiculo.fromJson(Map<String, dynamic> json) {
@@ -65,6 +77,10 @@ class Vehiculo {
       completitud: json['completitud'] as String? ?? 'completo',
       costoCompra: (json['costo_compra'] as num).toDouble(),
       proveedor: json['proveedor'] as String?,
+      proveedorId: json['proveedor_id'] as String?,
+      valorGrua: (json['valor_grua'] as num?)?.toDouble(),
+      comisionViaje: (json['comision_viaje'] as num?)?.toDouble(),
+      compradorId: json['comprador_id'] as String?,
       fechaIngreso: DateTime.parse(json['fecha_ingreso'] as String),
       notas: json['notas'] as String?,
       fotos: (json['fotos'] as List<dynamic>?)?.map((e) => e as String).toList(),
@@ -84,6 +100,14 @@ class Vehiculo {
       ubicacionNombre: json['ubicaciones'] != null
           ? (json['ubicaciones'] as Map<String, dynamic>)['nombre'] as String?
           : null,
+      proveedorNombre: json['proveedores'] != null
+          ? (json['proveedores'] as Map<String, dynamic>)['nombre'] as String?
+          : null,
+      compradorNombre: json['comprador:perfiles'] != null
+          ? (json['comprador:perfiles'] as Map<String, dynamic>)['nombre'] as String?
+          : (json['comprador_perfil'] != null
+              ? (json['comprador_perfil'] as Map<String, dynamic>)['nombre'] as String?
+              : null),
     );
   }
 
@@ -100,6 +124,10 @@ class Vehiculo {
       'completitud': completitud,
       'costo_compra': costoCompra,
       'proveedor': proveedor,
+      'proveedor_id': proveedorId,
+      'valor_grua': valorGrua,
+      'comision_viaje': comisionViaje,
+      'comprador_id': compradorId,
       'fecha_ingreso': fechaIngreso.toIso8601String(),
       'notas': notas,
       'fotos': fotos,
@@ -124,6 +152,10 @@ class Vehiculo {
     String? completitud,
     double? costoCompra,
     String? proveedor,
+    String? proveedorId,
+    double? valorGrua,
+    double? comisionViaje,
+    String? compradorId,
     DateTime? fechaIngreso,
     String? notas,
     List<String>? fotos,
@@ -145,6 +177,10 @@ class Vehiculo {
       completitud: completitud ?? this.completitud,
       costoCompra: costoCompra ?? this.costoCompra,
       proveedor: proveedor ?? this.proveedor,
+      proveedorId: proveedorId ?? this.proveedorId,
+      valorGrua: valorGrua ?? this.valorGrua,
+      comisionViaje: comisionViaje ?? this.comisionViaje,
+      compradorId: compradorId ?? this.compradorId,
       fechaIngreso: fechaIngreso ?? this.fechaIngreso,
       notas: notas ?? this.notas,
       fotos: fotos ?? this.fotos,
@@ -156,6 +192,8 @@ class Vehiculo {
       modeloNombre: modeloNombre,
       tipoVehiculoNombre: tipoVehiculoNombre,
       ubicacionNombre: ubicacionNombre,
+      proveedorNombre: proveedorNombre,
+      compradorNombre: compradorNombre,
     );
   }
 }
