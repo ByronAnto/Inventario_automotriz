@@ -931,5 +931,70 @@ CREATE TRIGGER trg_validar_stock_venta
   EXECUTE FUNCTION validar_stock_venta();
 
 -- ============================================
+-- RPC: Registro atómico de venta
+-- ============================================
+CREATE OR REPLACE FUNCTION registrar_venta(
+  p_vendedor_id UUID,
+  p_cliente_nombre TEXT DEFAULT NULL,
+  p_cliente_telefono TEXT DEFAULT NULL,
+  p_metodo_pago TEXT DEFAULT 'Efectivo',
+  p_total NUMERIC DEFAULT 0,
+  p_notas TEXT DEFAULT NULL,
+  p_items JSONB DEFAULT '[]'::JSONB
+) RETURNS JSONB AS $$
+DECLARE
+  v_venta_id UUID;
+  v_item JSONB;
+  v_repuesto_id UUID;
+  v_estado TEXT;
+  v_nombre TEXT;
+BEGIN
+  -- 1. Bloquear y validar todos los repuestos
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+  LOOP
+    v_repuesto_id := (v_item->>'repuesto_id')::UUID;
+    SELECT r.estado, cp.nombre INTO v_estado, v_nombre
+      FROM repuestos r
+      LEFT JOIN catalogo_partes cp ON r.catalogo_parte_id = cp.id
+      WHERE r.id = v_repuesto_id
+      FOR UPDATE;
+
+    IF v_estado IS NULL THEN
+      RAISE EXCEPTION 'Repuesto no encontrado: %', v_repuesto_id;
+    END IF;
+    IF v_estado != 'disponible' THEN
+      RAISE EXCEPTION 'El repuesto "%" ya no está disponible (estado: %)',
+        COALESCE(v_nombre, v_repuesto_id::TEXT), v_estado;
+    END IF;
+  END LOOP;
+
+  -- 2. Crear registro de venta
+  INSERT INTO ventas (fecha, vendedor_id, cliente_nombre, cliente_telefono, metodo_pago, total, notas)
+  VALUES (NOW(), p_vendedor_id, NULLIF(p_cliente_nombre, ''), NULLIF(p_cliente_telefono, ''), p_metodo_pago, p_total, NULLIF(p_notas, ''))
+  RETURNING id INTO v_venta_id;
+
+  -- 3. Para cada item: crear detalle, actualizar repuesto, crear movimiento
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+  LOOP
+    v_repuesto_id := (v_item->>'repuesto_id')::UUID;
+
+    -- Insertar detalle (trigger valida que sigue disponible)
+    INSERT INTO venta_detalle (venta_id, repuesto_id, precio)
+    VALUES (v_venta_id, v_repuesto_id, (v_item->>'precio')::NUMERIC);
+
+    -- Marcar repuesto como vendido
+    UPDATE repuestos SET estado = 'vendido'
+    WHERE id = v_repuesto_id;
+
+    -- Registrar movimiento
+    INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, venta_id, notas)
+    VALUES (v_repuesto_id, 'venta', NOW(), p_vendedor_id, v_venta_id, 'Venta registrada');
+  END LOOP;
+
+  RETURN jsonb_build_object('venta_id', v_venta_id, 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
 -- FIN DEL SCHEMA
 -- ============================================

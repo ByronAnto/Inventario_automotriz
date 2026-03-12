@@ -426,97 +426,24 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
       final auth = ref.read(authProvider);
       final vendedorId = auth.perfil!.id;
 
-      // ── Validar stock: verificar que todos estén disponibles ──
-      final repuestoIds = _carrito.keys.toList();
-      final stockCheck = await supabase
-          .from('repuestos')
-          .select('id, estado, catalogo_partes(nombre)')
-          .inFilter('id', repuestoIds);
+      // ── Construir lista de items para el RPC ──
+      final items = _carrito.entries.map((entry) => {
+        'repuesto_id': entry.key,
+        'precio': entry.value.precio,
+      }).toList();
 
-      final noDisponibles = <String>[];
-      for (final r in stockCheck) {
-        if (r['estado'] != 'disponible') {
-          final nombre = r['catalogo_partes']?['nombre'] ?? r['id'];
-          noDisponibles.add('$nombre (${r['estado']})');
-        }
-      }
-
-      if (noDisponibles.isNotEmpty) {
-        if (mounted) {
-          // Quitar del carrito los no disponibles
-          for (final r in stockCheck) {
-            if (r['estado'] != 'disponible') {
-              setState(() => _carrito.remove(r['id']));
-            }
-          }
-          ref.invalidate(repuestosDisponiblesProvider);
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Los siguientes repuestos ya NO están disponibles y fueron removidos del carrito:\n${noDisponibles.join(', ')}',
-              ),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-        return;
-      }
-
-      // ── Primero marcar repuestos como vendidos (antes de crear la venta) ──
-      for (final repuestoId in repuestoIds) {
-        final updated = await supabase
-            .from('repuestos')
-            .update({'estado': 'vendido'})
-            .eq('id', repuestoId)
-            .eq('estado', 'disponible') // Solo actualiza si sigue disponible
-            .select('id');
-
-        if (updated.isEmpty) {
-          // Alguien más vendió este repuesto entre la verificación y ahora
-          throw Exception(
-              'El repuesto ${_carrito[repuestoId]?.nombre} ya fue vendido por otro usuario');
-        }
-      }
-
-      // ── Crear venta ──
-      final ventaData = await supabase.from('ventas').insert({
-        'fecha': DateTime.now().toIso8601String(),
-        'vendedor_id': vendedorId,
-        'cliente_nombre': _clienteNombreCtrl.text.isEmpty
-            ? null
-            : _clienteNombreCtrl.text,
-        'cliente_telefono': _clienteTelefonoCtrl.text.isEmpty
-            ? null
-            : _clienteTelefonoCtrl.text,
-        'metodo_pago': _metodoPago,
-        'total': _total,
-        'notas': _notasCtrl.text.isEmpty ? null : _notasCtrl.text,
-      }).select('id').single();
-
-      final ventaId = ventaData['id'] as String;
-
-      // ── Crear detalles de venta ──
-      final detalles = _carrito.entries.map((entry) => {
-            'venta_id': ventaId,
-            'repuesto_id': entry.key,
-            'precio': entry.value.precio,
-          }).toList();
-
-      await supabase.from('venta_detalle').insert(detalles);
-
-      // ── Registrar movimientos ──
-      for (final repuestoId in repuestoIds) {
-        await supabase.from('movimientos').insert({
-          'repuesto_id': repuestoId,
-          'tipo': 'venta',
-          'fecha': DateTime.now().toIso8601String(),
-          'usuario_id': vendedorId,
-          'venta_id': ventaId,
-          'notas': 'Venta registrada',
-        });
-      }
+      // ── Llamar función atómica del servidor ──
+      // Todo ocurre en una sola transacción: validación, venta,
+      // detalles, actualización de estado y movimientos.
+      await supabase.rpc('registrar_venta', params: {
+        'p_vendedor_id': vendedorId,
+        'p_cliente_nombre': _clienteNombreCtrl.text,
+        'p_cliente_telefono': _clienteTelefonoCtrl.text,
+        'p_metodo_pago': _metodoPago,
+        'p_total': _total,
+        'p_notas': _notasCtrl.text,
+        'p_items': items,
+      });
 
       // ── Invalidar providers para refrescar datos ──
       ref.invalidate(repuestosDisponiblesProvider);
@@ -532,10 +459,23 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
         );
         context.go('/ventas');
       }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        // Extraer mensaje legible del error
+        final msg = e.message.contains('"')
+            ? e.message
+            : 'Error al registrar venta: ${e.message}';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+        // Refrescar la lista por si algún item cambió de estado
+        ref.invalidate(repuestosDisponiblesProvider);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
