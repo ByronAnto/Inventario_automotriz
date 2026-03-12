@@ -467,29 +467,12 @@ class _TrasladoDialogState extends ConsumerState<_TrasladoDialog> {
     setState(() => _saving = true);
     try {
       final supabase = Supabase.instance.client;
-      final auth = ref.read(authProvider);
 
-      // Obtener ubicación actual
-      final repData = await supabase
-          .from('repuestos')
-          .select('ubicacion_id')
-          .eq('id', _repuestoId!)
-          .single();
-
-      // Actualizar ubicación del repuesto
-      await supabase
-          .from('repuestos')
-          .update({'ubicacion_id': _ubicacionDestinoId}).eq('id', _repuestoId!);
-
-      // Registrar movimiento
-      await supabase.from('movimientos').insert({
-        'repuesto_id': _repuestoId,
-        'tipo': 'traslado',
-        'fecha': DateTime.now().toIso8601String(),
-        'usuario_id': auth.perfil!.id,
-        'ubicacion_origen_id': repData['ubicacion_id'],
-        'ubicacion_destino_id': _ubicacionDestinoId,
-        'notas': _notasCtrl.text.isEmpty ? 'Traslado' : _notasCtrl.text,
+      await supabase.rpc('trasladar_repuestos', params: {
+        'p_repuesto_ids': [_repuestoId],
+        'p_ubicacion_destino_id': _ubicacionDestinoId,
+        'p_usuario_id': supabase.auth.currentUser!.id,
+        'p_notas': _notasCtrl.text.isEmpty ? null : _notasCtrl.text,
       });
 
       if (mounted) {
