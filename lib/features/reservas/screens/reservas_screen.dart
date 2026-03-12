@@ -829,6 +829,7 @@ class _NuevaReservaDialogState extends ConsumerState<_NuevaReservaDialog> {
             : _clienteTelefonoCtrl.text.trim(),
         'p_monto_abono': double.parse(_montoAbonoCtrl.text),
         'p_dias_expiracion': _diasExpiracion,
+        'p_vendedor_id': Supabase.instance.client.auth.currentUser!.id,
         'p_notas':
             _notasCtrl.text.trim().isEmpty ? null : _notasCtrl.text.trim(),
       });

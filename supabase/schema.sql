@@ -1180,13 +1180,16 @@ BEGIN
   INSERT INTO reservas (repuesto_id, cliente_nombre, cliente_telefono, monto_abono,
                         fecha_expiracion, vendedor_id, notas)
   VALUES (p_repuesto_id, p_cliente_nombre, NULLIF(p_cliente_telefono, ''),
-          p_monto_abono, v_fecha_exp, p_vendedor_id, NULLIF(p_notas, ''))
+          p_monto_abono, v_fecha_exp,
+          COALESCE(p_vendedor_id, auth.uid()),
+          NULLIF(p_notas, ''))
   RETURNING id INTO v_reserva_id;
 
   UPDATE repuestos SET estado = 'reservado' WHERE id = p_repuesto_id;
 
   INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, notas)
-  VALUES (p_repuesto_id, 'reserva', NOW(), p_vendedor_id,
+  VALUES (p_repuesto_id, 'reserva', NOW(),
+          COALESCE(p_vendedor_id, auth.uid()),
           'Reservado para ' || p_cliente_nombre || ' - Abono: $' || p_monto_abono::TEXT);
 
   RETURN jsonb_build_object('reserva_id', v_reserva_id, 'repuesto', COALESCE(v_nombre, p_repuesto_id::TEXT),
