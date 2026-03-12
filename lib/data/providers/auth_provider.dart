@@ -200,6 +200,7 @@ class AuthNotifier extends Notifier<AppAuthState> {
         isLoading: false,
         errorMessage: 'Error al crear usuario: $e',
       );
+      rethrow; // Relanzar para que el diálogo pueda mostrar el error
     }
   }
 

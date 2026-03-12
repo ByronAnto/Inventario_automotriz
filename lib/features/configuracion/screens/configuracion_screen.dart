@@ -9,6 +9,7 @@ import '../../../data/models/marca_modelo.dart';
 import '../../../data/models/proveedor.dart';
 import '../../../data/models/estado_vehiculo.dart';
 import '../../../data/models/campo_configuracion.dart';
+import '../../../data/models/ubicacion.dart';
 import '../../../core/constants/app_constants.dart';
 
 // Provider de perfiles (usuarios)
@@ -95,6 +96,16 @@ final campoConfiguracionProvider =
   return data.map((e) => CampoConfiguracion.fromJson(e)).toList();
 });
 
+// Provider de ubicaciones (config)
+final ubicacionesConfigProvider = FutureProvider<List<Ubicacion>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase
+      .from('ubicaciones')
+      .select()
+      .order('nombre');
+  return data.map((e) => Ubicacion.fromJson(e)).toList();
+});
+
 // Provider de plantilla por tipo de vehículo
 final plantillaTipoProvider =
     FutureProvider.family<List<PlantillaTipoVehiculo>, String>((ref, tipoId) async {
@@ -122,7 +133,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 9, vsync: this);
+    _tabController = TabController(length: 10, vsync: this);
   }
 
   @override
@@ -147,6 +158,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
             Tab(icon: Icon(Icons.branding_watermark), text: 'Marcas / Modelos'),
             Tab(icon: Icon(Icons.local_shipping), text: 'Proveedores'),
             Tab(icon: Icon(Icons.flag), text: 'Estados Vehículo'),
+            Tab(icon: Icon(Icons.location_on), text: 'Ubicaciones'),
             Tab(icon: Icon(Icons.toggle_on), text: 'Campos'),
             Tab(icon: Icon(Icons.dns), text: 'Servidor'),
           ],
@@ -162,6 +174,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
               _MarcasModelosTab(),
               _ProveedoresTab(),
               _EstadosVehiculoTab(),
+              _UbicacionesTab(),
               _CamposConfigTab(),
               _ServidorTab(),
             ],
@@ -2446,6 +2459,246 @@ class _EstadosVehiculoTab extends ConsumerWidget {
                   .delete()
                   .eq('id', est.id);
               ref.invalidate(estadosVehiculoConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================
+// TAB: Ubicaciones
+// ============================================
+class _UbicacionesTab extends ConsumerWidget {
+  const _UbicacionesTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ubicaciones = ref.watch(ubicacionesConfigProvider);
+
+    return ubicaciones.when(
+      data: (lista) => Scaffold(
+        body: lista.isEmpty
+            ? const Center(child: Text('No hay ubicaciones registradas.'))
+            : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: lista.length,
+                itemBuilder: (context, index) {
+                  final ubi = lista[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.location_on,
+                        color: ubi.activo ? Colors.blue : Colors.grey,
+                      ),
+                      title: Text(
+                        ubi.nombre,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: ubi.activo ? null : Colors.grey,
+                        ),
+                      ),
+                      subtitle: Text([
+                        if (ubi.telefono != null && ubi.telefono!.isNotEmpty)
+                          'Tel: ${ubi.telefono}',
+                        if (ubi.direccion != null && ubi.direccion!.isNotEmpty)
+                          ubi.direccion!,
+                      ].join(' | ')),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Switch(
+                            value: ubi.activo,
+                            onChanged: (val) => _toggleUbicacion(ref, ubi, val),
+                          ),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 20),
+                            onSelected: (action) {
+                              if (action == 'editar') {
+                                _showEditDialog(context, ref, ubi);
+                              } else if (action == 'eliminar') {
+                                _confirmDelete(context, ref, ubi);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'editar',
+                                child: ListTile(
+                                  leading: Icon(Icons.edit, size: 20),
+                                  title: Text('Editar'),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'eliminar',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete, size: 20, color: Colors.red),
+                                  title: Text('Eliminar',
+                                      style: TextStyle(color: Colors.red)),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _showAddDialog(context, ref),
+          child: const Icon(Icons.add),
+        ),
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
+  }
+
+  Future<void> _toggleUbicacion(
+      WidgetRef ref, Ubicacion ubi, bool value) async {
+    final supabase = ref.read(supabaseClientProvider);
+    await supabase
+        .from('ubicaciones')
+        .update({'activo': value}).eq('id', ubi.id);
+    ref.invalidate(ubicacionesConfigProvider);
+  }
+
+  void _showAddDialog(BuildContext context, WidgetRef ref) {
+    final nombreCtrl = TextEditingController();
+    final telefonoCtrl = TextEditingController();
+    final direccionCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Agregar Ubicación'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: telefonoCtrl,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: direccionCtrl,
+                decoration: const InputDecoration(labelText: 'Dirección'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (nombreCtrl.text.trim().isNotEmpty) {
+                final supabase = ref.read(supabaseClientProvider);
+                await supabase.from('ubicaciones').insert({
+                  'nombre': nombreCtrl.text.trim(),
+                  'telefono': telefonoCtrl.text.trim().isNotEmpty
+                      ? telefonoCtrl.text.trim()
+                      : null,
+                  'direccion': direccionCtrl.text.trim().isNotEmpty
+                      ? direccionCtrl.text.trim()
+                      : null,
+                });
+                ref.invalidate(ubicacionesConfigProvider);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref, Ubicacion ubi) {
+    final nombreCtrl = TextEditingController(text: ubi.nombre);
+    final telefonoCtrl = TextEditingController(text: ubi.telefono ?? '');
+    final direccionCtrl = TextEditingController(text: ubi.direccion ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar Ubicación'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: telefonoCtrl,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: direccionCtrl,
+                decoration: const InputDecoration(labelText: 'Dirección'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('ubicaciones').update({
+                'nombre': nombreCtrl.text.trim(),
+                'telefono': telefonoCtrl.text.trim().isNotEmpty
+                    ? telefonoCtrl.text.trim()
+                    : null,
+                'direccion': direccionCtrl.text.trim().isNotEmpty
+                    ? direccionCtrl.text.trim()
+                    : null,
+              }).eq('id', ubi.id);
+              ref.invalidate(ubicacionesConfigProvider);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, WidgetRef ref, Ubicacion ubi) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Ubicación'),
+        content: Text('¿Eliminar "${ubi.nombre}"? Los items asociados perderán esta ubicación.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final supabase = ref.read(supabaseClientProvider);
+              await supabase.from('ubicaciones').delete().eq('id', ubi.id);
+              ref.invalidate(ubicacionesConfigProvider);
               if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Eliminar'),

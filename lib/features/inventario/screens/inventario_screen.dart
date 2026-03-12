@@ -31,6 +31,9 @@ class InventarioFiltros {
       ubicacionId != null ||
       marcaNombre != null;
 
+  /// True when the user explicitly chose to see ALL items (including vendidos)
+  bool get mostrandoTodos => estado == '__all__';
+
   InventarioFiltros copyWith({
     String? busqueda,
     String? categoria,
@@ -75,9 +78,14 @@ final inventarioProvider = FutureProvider<List<Repuesto>>((ref) async {
     '*, catalogo_partes(*), ubicaciones(*), vehiculos(*, marcas(*), modelos(*))',
   );
 
-  if (filtros.estado != null) {
+  if (filtros.estado != null && filtros.estado != '__all__') {
+    // User selected a specific estado
     query = query.eq('estado', filtros.estado!);
+  } else if (filtros.estado == null) {
+    // Default: hide vendidos
+    query = query.neq('estado', 'vendido');
   }
+  // When filtros.estado == '__all__', no filter → show everything
   if (filtros.ubicacionId != null) {
     query = query.eq('ubicacion_id', filtros.ubicacionId!);
   }
@@ -177,10 +185,7 @@ class InventarioScreen extends ConsumerWidget {
       body: Column(
         children: [
           // Stats summary bar
-          inventario.whenOrNull(
-                data: (reps) => _StatsBar(repuestos: reps),
-              ) ??
-              const SizedBox.shrink(),
+          const _StatsBar(),
 
           // Search bar
           _buildSearchBar(context, ref, filtros),
@@ -226,7 +231,10 @@ class InventarioScreen extends ConsumerWidget {
                     Text('Error: $e', textAlign: TextAlign.center),
                     const SizedBox(height: 12),
                     FilledButton.icon(
-                      onPressed: () => ref.invalidate(inventarioProvider),
+                      onPressed: () {
+                        ref.invalidate(inventarioProvider);
+                        ref.invalidate(inventarioStatsProvider);
+                      },
                       icon: const Icon(Icons.refresh),
                       label: const Text('Reintentar'),
                     ),
@@ -358,7 +366,19 @@ class InventarioScreen extends ConsumerWidget {
             hint: 'Estado',
             icon: Icons.flag_outlined,
             items: [
-              const DropdownMenuItem(value: null, child: Text('Todos')),
+              const DropdownMenuItem(
+                  value: null,
+                  child: Text('Sin vendidos')),
+              const DropdownMenuItem(
+                  value: '__all__',
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.all_inclusive, size: 14, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text('Todos'),
+                    ],
+                  )),
               ...[
                 'disponible',
                 'vendido',
@@ -467,7 +487,7 @@ class InventarioScreen extends ConsumerWidget {
         spacing: 6,
         runSpacing: 4,
         children: [
-          if (filtros.estado != null)
+          if (filtros.estado != null && filtros.estado != '__all__')
             Chip(
               label: Text(filtros.estado![0].toUpperCase() +
                   filtros.estado!.substring(1)),
@@ -482,6 +502,16 @@ class InventarioScreen extends ConsumerWidget {
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
               ),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          if (filtros.mostrandoTodos)
+            Chip(
+              avatar: const Icon(Icons.all_inclusive, size: 14),
+              label: const Text('Todos (incl. vendidos)'),
+              onDeleted: () => ref
+                  .read(inventarioFiltrosProvider.notifier)
+                  .update((_) => filtros.copyWith(clearEstado: true)),
               visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -542,62 +572,84 @@ class InventarioScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => const _IngresoExternoDialog(),
-    ).then((_) => ref.invalidate(inventarioProvider));
+    ).then((_) {
+      ref.invalidate(inventarioProvider);
+      ref.invalidate(inventarioStatsProvider);
+    });
   }
 }
 
 // ─── Stats Bar ───────────────────────────────────────────────
 
-class _StatsBar extends StatelessWidget {
-  final List<Repuesto> repuestos;
-  const _StatsBar({required this.repuestos});
+/// Provider que siempre trae los conteos globales (sin filtros)
+final inventarioStatsProvider =
+    FutureProvider<Map<String, int>>((ref) async {
+  final data = await Supabase.instance.client
+      .from('repuestos')
+      .select('estado');
+  final list = data as List;
+  final total = list.length;
+  final disponibles = list.where((r) => r['estado'] == 'disponible').length;
+  final vendidos = list.where((r) => r['estado'] == 'vendido').length;
+  final faltantes = list.where((r) => r['estado'] == 'faltante').length;
+  final danados = list.where((r) => r['estado'] == 'dañado').length;
+  return {
+    'total': total,
+    'disponibles': disponibles,
+    'vendidos': vendidos,
+    'atencion': faltantes + danados,
+  };
+});
+
+class _StatsBar extends ConsumerWidget {
+  const _StatsBar();
 
   @override
-  Widget build(BuildContext context) {
-    final disponibles =
-        repuestos.where((r) => r.estado == 'disponible').length;
-    final vendidos = repuestos.where((r) => r.estado == 'vendido').length;
-    final faltantes = repuestos.where((r) => r.estado == 'faltante').length;
-    final danados = repuestos.where((r) => r.estado == 'dañado').length;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stats = ref.watch(inventarioStatsProvider);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
-            Theme.of(context).colorScheme.primary.withValues(alpha: 0.03),
+    return stats.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (s) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.03),
+            ],
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _StatItem(
+              icon: Icons.inventory_2,
+              label: 'Total',
+              value: '${s['total']}',
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            _StatItem(
+              icon: Icons.check_circle,
+              label: 'Disponible',
+              value: '${s['disponibles']}',
+              color: Colors.green,
+            ),
+            _StatItem(
+              icon: Icons.shopping_cart,
+              label: 'Vendido',
+              value: '${s['vendidos']}',
+              color: Colors.blue,
+            ),
+            _StatItem(
+              icon: Icons.warning_amber,
+              label: 'Atención',
+              value: '${s['atencion']}',
+              color: Colors.orange,
+            ),
           ],
         ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _StatItem(
-            icon: Icons.inventory_2,
-            label: 'Total',
-            value: '${repuestos.length}',
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          _StatItem(
-            icon: Icons.check_circle,
-            label: 'Disponible',
-            value: '$disponibles',
-            color: Colors.green,
-          ),
-          _StatItem(
-            icon: Icons.shopping_cart,
-            label: 'Vendido',
-            value: '$vendidos',
-            color: Colors.blue,
-          ),
-          _StatItem(
-            icon: Icons.warning_amber,
-            label: 'Atención',
-            value: '${faltantes + danados}',
-            color: Colors.orange,
-          ),
-        ],
       ),
     );
   }
@@ -665,39 +717,49 @@ class _FilterDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActive = value != null;
+    final primaryColor = Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: isActive
-              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+              ? primaryColor.withValues(alpha: 0.1)
               : Colors.grey[100],
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isActive
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey[300]!,
+            color: isActive ? primaryColor : Colors.grey[300]!,
           ),
         ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<T>(
-            value: value,
-            hint: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Text(hint,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-              ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16,
+                color: isActive ? primaryColor : Colors.grey[600]),
+            const SizedBox(width: 4),
+            Text(
+              '$hint:',
+              style: TextStyle(
+                fontSize: 11,
+                color: isActive ? primaryColor : Colors.grey[600],
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            isDense: true,
-            icon: Icon(Icons.arrow_drop_down,
-                size: 18, color: Colors.grey[600]),
-            items: items,
-            onChanged: onChanged,
-          ),
+            const SizedBox(width: 2),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<T>(
+                value: value,
+                hint: Text('Todos',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                isDense: true,
+                icon: Icon(Icons.arrow_drop_down,
+                    size: 18,
+                    color: isActive ? primaryColor : Colors.grey[600]),
+                items: items,
+                onChanged: onChanged,
+              ),
+            ),
+          ],
         ),
       ),
     );
