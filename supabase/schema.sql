@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS repuestos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   vehiculo_id UUID REFERENCES vehiculos(id) ON DELETE SET NULL,
   catalogo_parte_id UUID NOT NULL REFERENCES catalogo_partes(id),
-  estado TEXT NOT NULL DEFAULT 'disponible' CHECK (estado IN ('disponible', 'vendido', 'faltante', 'dañado', 'intercambiado', 'descartado')),
+  estado TEXT NOT NULL DEFAULT 'disponible' CHECK (estado IN ('disponible', 'vendido', 'faltante', 'dañado', 'intercambiado', 'descartado', 'reservado')),
   ubicacion_id UUID REFERENCES ubicaciones(id),
   precio_sugerido NUMERIC(12,2),
   origen TEXT NOT NULL DEFAULT 'vehiculo' CHECK (origen IN ('vehiculo', 'externo')),
@@ -208,7 +208,7 @@ CREATE TABLE IF NOT EXISTS venta_detalle (
 CREATE TABLE IF NOT EXISTS movimientos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   repuesto_id UUID NOT NULL REFERENCES repuestos(id),
-  tipo TEXT NOT NULL CHECK (tipo IN ('ingreso_vehiculo', 'ingreso_externo', 'venta', 'intercambio', 'traslado', 'descarte')),
+  tipo TEXT NOT NULL CHECK (tipo IN ('ingreso_vehiculo', 'ingreso_externo', 'venta', 'intercambio', 'traslado', 'descarte', 'reserva', 'devolucion')),
   fecha TIMESTAMPTZ NOT NULL DEFAULT now(),
   usuario_id UUID NOT NULL REFERENCES perfiles(id),
   ubicacion_origen_id UUID REFERENCES ubicaciones(id),
@@ -1043,6 +1043,280 @@ BEGIN
   WHERE id = p_venta_id;
 
   RETURN jsonb_build_object('venta_id', p_venta_id, 'items_devueltos', v_count, 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- 14. RESERVAS
+-- ============================================
+CREATE TABLE IF NOT EXISTS reservas (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  repuesto_id UUID NOT NULL REFERENCES repuestos(id),
+  cliente_nombre TEXT NOT NULL,
+  cliente_telefono TEXT,
+  monto_abono NUMERIC(12,2) NOT NULL DEFAULT 0,
+  fecha_reserva TIMESTAMPTZ NOT NULL DEFAULT now(),
+  fecha_expiracion TIMESTAMPTZ NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'activa' CHECK (estado IN ('activa', 'completada', 'expirada', 'cancelada')),
+  vendedor_id UUID NOT NULL REFERENCES perfiles(id),
+  notas TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservas_repuesto_id ON reservas(repuesto_id);
+CREATE INDEX IF NOT EXISTS idx_reservas_estado ON reservas(estado);
+CREATE INDEX IF NOT EXISTS idx_reservas_fecha_expiracion ON reservas(fecha_expiracion);
+CREATE INDEX IF NOT EXISTS idx_reservas_vendedor_id ON reservas(vendedor_id);
+
+ALTER TABLE reservas ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "reservas_select" ON reservas;
+CREATE POLICY "reservas_select" ON reservas FOR SELECT USING (true);
+DROP POLICY IF EXISTS "reservas_insert" ON reservas;
+CREATE POLICY "reservas_insert" ON reservas FOR INSERT
+  WITH CHECK (get_user_role() IN ('administrador', 'vendedor'));
+DROP POLICY IF EXISTS "reservas_update" ON reservas;
+CREATE POLICY "reservas_update" ON reservas FOR UPDATE
+  USING (get_user_role() IN ('administrador', 'vendedor'));
+DROP POLICY IF EXISTS "reservas_delete" ON reservas;
+CREATE POLICY "reservas_delete" ON reservas FOR DELETE
+  USING (get_user_role() = 'administrador');
+
+-- DELETE policy para vehiculos (solo admin)
+DROP POLICY IF EXISTS "vehiculos_delete" ON vehiculos;
+CREATE POLICY "vehiculos_delete" ON vehiculos FOR DELETE
+  USING (get_user_role() = 'administrador');
+
+-- DELETE policy para repuestos (solo admin)
+DROP POLICY IF EXISTS "repuestos_delete" ON repuestos;
+CREATE POLICY "repuestos_delete" ON repuestos FOR DELETE
+  USING (get_user_role() = 'administrador');
+
+-- ============================================
+-- RPC: Eliminar vehículo (solo si nada vendido)
+-- ============================================
+CREATE OR REPLACE FUNCTION eliminar_vehiculo(
+  p_vehiculo_id UUID
+) RETURNS JSONB AS $$
+DECLARE
+  v_vendidos INT;
+  v_reservados INT;
+  v_repuestos_count INT;
+  v_nombre TEXT;
+BEGIN
+  SELECT COALESCE(m.nombre || ' ' || mo.nombre || ' ' || v.anio, v.id::TEXT)
+  INTO v_nombre
+  FROM vehiculos v
+  LEFT JOIN marcas m ON v.marca_id = m.id
+  LEFT JOIN modelos mo ON v.modelo_id = mo.id
+  WHERE v.id = p_vehiculo_id;
+
+  IF v_nombre IS NULL THEN
+    RAISE EXCEPTION 'Vehículo no encontrado: %', p_vehiculo_id;
+  END IF;
+
+  SELECT COUNT(*) INTO v_vendidos
+  FROM repuestos WHERE vehiculo_id = p_vehiculo_id AND estado = 'vendido';
+  IF v_vendidos > 0 THEN
+    RAISE EXCEPTION 'No se puede eliminar "%": tiene % repuesto(s) vendido(s)', v_nombre, v_vendidos;
+  END IF;
+
+  SELECT COUNT(*) INTO v_reservados
+  FROM repuestos WHERE vehiculo_id = p_vehiculo_id AND estado = 'reservado';
+  IF v_reservados > 0 THEN
+    RAISE EXCEPTION 'No se puede eliminar "%": tiene % repuesto(s) reservado(s)', v_nombre, v_reservados;
+  END IF;
+
+  SELECT COUNT(*) INTO v_repuestos_count
+  FROM repuestos WHERE vehiculo_id = p_vehiculo_id;
+
+  DELETE FROM movimientos WHERE repuesto_id IN (
+    SELECT id FROM repuestos WHERE vehiculo_id = p_vehiculo_id
+  );
+  DELETE FROM repuestos WHERE vehiculo_id = p_vehiculo_id;
+  DELETE FROM vehiculos WHERE id = p_vehiculo_id;
+
+  RETURN jsonb_build_object('vehiculo_id', p_vehiculo_id, 'nombre', v_nombre,
+    'repuestos_eliminados', v_repuestos_count, 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- RPC: Reservar repuesto
+-- ============================================
+CREATE OR REPLACE FUNCTION reservar_repuesto(
+  p_repuesto_id UUID,
+  p_cliente_nombre TEXT,
+  p_cliente_telefono TEXT DEFAULT NULL,
+  p_monto_abono NUMERIC DEFAULT 0,
+  p_dias_expiracion INT DEFAULT 7,
+  p_vendedor_id UUID DEFAULT NULL,
+  p_notas TEXT DEFAULT NULL
+) RETURNS JSONB AS $$
+DECLARE
+  v_estado TEXT;
+  v_nombre TEXT;
+  v_reserva_id UUID;
+  v_fecha_exp TIMESTAMPTZ;
+BEGIN
+  SELECT r.estado, cp.nombre INTO v_estado, v_nombre
+  FROM repuestos r
+  LEFT JOIN catalogo_partes cp ON r.catalogo_parte_id = cp.id
+  WHERE r.id = p_repuesto_id
+  FOR UPDATE OF r;
+
+  IF v_estado IS NULL THEN
+    RAISE EXCEPTION 'Repuesto no encontrado: %', p_repuesto_id;
+  END IF;
+  IF v_estado != 'disponible' THEN
+    RAISE EXCEPTION 'El repuesto "%" no está disponible (estado: %)', COALESCE(v_nombre, p_repuesto_id::TEXT), v_estado;
+  END IF;
+  IF p_cliente_nombre IS NULL OR p_cliente_nombre = '' THEN
+    RAISE EXCEPTION 'El nombre del cliente es obligatorio';
+  END IF;
+
+  v_fecha_exp := NOW() + (p_dias_expiracion || ' days')::INTERVAL;
+
+  INSERT INTO reservas (repuesto_id, cliente_nombre, cliente_telefono, monto_abono,
+                        fecha_expiracion, vendedor_id, notas)
+  VALUES (p_repuesto_id, p_cliente_nombre, NULLIF(p_cliente_telefono, ''),
+          p_monto_abono, v_fecha_exp, p_vendedor_id, NULLIF(p_notas, ''))
+  RETURNING id INTO v_reserva_id;
+
+  UPDATE repuestos SET estado = 'reservado' WHERE id = p_repuesto_id;
+
+  INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, notas)
+  VALUES (p_repuesto_id, 'reserva', NOW(), p_vendedor_id,
+          'Reservado para ' || p_cliente_nombre || ' - Abono: $' || p_monto_abono::TEXT);
+
+  RETURN jsonb_build_object('reserva_id', v_reserva_id, 'repuesto', COALESCE(v_nombre, p_repuesto_id::TEXT),
+    'cliente', p_cliente_nombre, 'expira', v_fecha_exp, 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- RPC: Cancelar reserva
+-- ============================================
+CREATE OR REPLACE FUNCTION cancelar_reserva(
+  p_reserva_id UUID
+) RETURNS JSONB AS $$
+DECLARE
+  v_reserva RECORD;
+BEGIN
+  SELECT r.*, cp.nombre AS parte_nombre
+  INTO v_reserva
+  FROM reservas r
+  LEFT JOIN repuestos rep ON r.repuesto_id = rep.id
+  LEFT JOIN catalogo_partes cp ON rep.catalogo_parte_id = cp.id
+  WHERE r.id = p_reserva_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Reserva no encontrada: %', p_reserva_id;
+  END IF;
+  IF v_reserva.estado != 'activa' THEN
+    RAISE EXCEPTION 'La reserva ya no está activa (estado: %)', v_reserva.estado;
+  END IF;
+
+  UPDATE repuestos SET estado = 'disponible'
+  WHERE id = v_reserva.repuesto_id AND estado = 'reservado';
+
+  UPDATE reservas SET estado = 'cancelada' WHERE id = p_reserva_id;
+
+  INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, notas)
+  VALUES (v_reserva.repuesto_id, 'devolucion', NOW(), v_reserva.vendedor_id,
+          'Reserva cancelada - Cliente: ' || v_reserva.cliente_nombre);
+
+  RETURN jsonb_build_object('reserva_id', p_reserva_id,
+    'repuesto', COALESCE(v_reserva.parte_nombre, v_reserva.repuesto_id::TEXT), 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- RPC: Expirar reservas vencidas
+-- ============================================
+CREATE OR REPLACE FUNCTION expirar_reservas()
+RETURNS JSONB AS $$
+DECLARE
+  v_reserva RECORD;
+  v_count INT := 0;
+BEGIN
+  FOR v_reserva IN
+    SELECT r.id, r.repuesto_id, r.cliente_nombre, r.monto_abono, r.vendedor_id
+    FROM reservas r
+    WHERE r.estado = 'activa' AND r.fecha_expiracion <= NOW()
+  LOOP
+    UPDATE repuestos SET estado = 'disponible'
+    WHERE id = v_reserva.repuesto_id AND estado = 'reservado';
+
+    UPDATE reservas SET estado = 'expirada' WHERE id = v_reserva.id;
+
+    INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id, notas)
+    VALUES (v_reserva.repuesto_id, 'devolucion', NOW(), v_reserva.vendedor_id,
+            'Reserva expirada - Cliente: ' || v_reserva.cliente_nombre ||
+            ' - Abono perdido: $' || v_reserva.monto_abono::TEXT);
+
+    v_count := v_count + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object('expiradas', v_count, 'success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- RPC: Trasladar repuestos entre ubicaciones
+-- ============================================
+CREATE OR REPLACE FUNCTION trasladar_repuestos(
+  p_repuesto_ids UUID[],
+  p_ubicacion_destino_id UUID,
+  p_usuario_id UUID,
+  p_notas TEXT DEFAULT NULL
+) RETURNS JSONB AS $$
+DECLARE
+  v_repuesto_id UUID;
+  v_estado TEXT;
+  v_nombre TEXT;
+  v_ubicacion_origen UUID;
+  v_ubicacion_destino_nombre TEXT;
+  v_count INT := 0;
+BEGIN
+  SELECT nombre INTO v_ubicacion_destino_nombre
+  FROM ubicaciones WHERE id = p_ubicacion_destino_id AND activo = true;
+  IF v_ubicacion_destino_nombre IS NULL THEN
+    RAISE EXCEPTION 'Ubicación destino no encontrada o inactiva';
+  END IF;
+
+  FOREACH v_repuesto_id IN ARRAY p_repuesto_ids
+  LOOP
+    SELECT r.estado, r.ubicacion_id, cp.nombre
+    INTO v_estado, v_ubicacion_origen, v_nombre
+    FROM repuestos r
+    LEFT JOIN catalogo_partes cp ON r.catalogo_parte_id = cp.id
+    WHERE r.id = v_repuesto_id
+    FOR UPDATE OF r;
+
+    IF v_estado IS NULL THEN
+      RAISE EXCEPTION 'Repuesto no encontrado: %', v_repuesto_id;
+    END IF;
+    IF v_estado NOT IN ('disponible', 'reservado') THEN
+      RAISE EXCEPTION 'El repuesto "%" no se puede trasladar (estado: %)',
+        COALESCE(v_nombre, v_repuesto_id::TEXT), v_estado;
+    END IF;
+    IF v_ubicacion_origen = p_ubicacion_destino_id THEN
+      CONTINUE;
+    END IF;
+
+    UPDATE repuestos SET ubicacion_id = p_ubicacion_destino_id WHERE id = v_repuesto_id;
+
+    INSERT INTO movimientos (repuesto_id, tipo, fecha, usuario_id,
+                             ubicacion_origen_id, ubicacion_destino_id, notas)
+    VALUES (v_repuesto_id, 'traslado', NOW(), p_usuario_id,
+            v_ubicacion_origen, p_ubicacion_destino_id,
+            COALESCE(p_notas, 'Traslado a ' || v_ubicacion_destino_nombre));
+
+    v_count := v_count + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object('trasladados', v_count, 'destino', v_ubicacion_destino_nombre, 'success', true);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

@@ -382,6 +382,7 @@ class InventarioScreen extends ConsumerWidget {
               ...[
                 'disponible',
                 'vendido',
+                'reservado',
                 'faltante',
                 'dañado',
                 'intercambiado',
@@ -1110,6 +1111,24 @@ void _showRepuestoDetail(BuildContext context, Repuesto r) {
 
             const SizedBox(height: 20),
 
+            // ── Actions: Trasladar ──
+            if (r.estado == 'disponible')
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _showTrasladarDialog(context, r);
+                  },
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Mover a otra bodega'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.deepPurple,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+
             // Back button (for mobile APK)
             SizedBox(
               width: double.infinity,
@@ -1128,6 +1147,138 @@ void _showRepuestoDetail(BuildContext context, Repuesto r) {
 
 String _formatDate(DateTime dt) {
   return '${dt.day.toString().padLeft(2, "0")}/${dt.month.toString().padLeft(2, "0")}/${dt.year}';
+}
+
+// ─── Diálogo de Traslado entre bodegas ───────────────────────
+
+void _showTrasladarDialog(BuildContext context, Repuesto repuesto) {
+  showDialog(
+    context: context,
+    builder: (_) => _TrasladarDialog(repuesto: repuesto),
+  );
+}
+
+class _TrasladarDialog extends ConsumerStatefulWidget {
+  final Repuesto repuesto;
+  const _TrasladarDialog({required this.repuesto});
+
+  @override
+  ConsumerState<_TrasladarDialog> createState() => _TrasladarDialogState();
+}
+
+class _TrasladarDialogState extends ConsumerState<_TrasladarDialog> {
+  String? _ubicacionDestinoId;
+  bool _saving = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ubicaciones = ref.watch(ubicacionesInventarioProvider);
+
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.swap_horiz, color: Colors.deepPurple),
+          SizedBox(width: 8),
+          Text('Trasladar Repuesto'),
+        ],
+      ),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.repuesto.parteNombre ?? 'Repuesto',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            if (widget.repuesto.ubicacionNombre != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Ubicación actual: ${widget.repuesto.ubicacionNombre}',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                ),
+              ),
+            const SizedBox(height: 16),
+            ubicaciones.when(
+              data: (list) {
+                // Excluir la ubicación actual
+                final destinos = list
+                    .where((u) => u.id != widget.repuesto.ubicacionId)
+                    .toList();
+
+                return DropdownButtonFormField<String>(
+                  value: _ubicacionDestinoId,
+                  decoration: const InputDecoration(
+                    labelText: 'Bodega destino *',
+                    isDense: true,
+                  ),
+                  items: destinos
+                      .map((u) =>
+                          DropdownMenuItem(value: u.id, child: Text(u.nombre)))
+                      .toList(),
+                  onChanged: (v) =>
+                      setState(() => _ubicacionDestinoId = v),
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _saving || _ubicacionDestinoId == null
+              ? null
+              : _trasladar,
+          child: _saving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Trasladar'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _trasladar() async {
+    setState(() => _saving = true);
+
+    try {
+      await Supabase.instance.client.rpc('trasladar_repuestos', params: {
+        'p_repuesto_ids': [widget.repuesto.id],
+        'p_ubicacion_destino_id': _ubicacionDestinoId,
+      });
+
+      ref.invalidate(inventarioProvider);
+      ref.invalidate(inventarioStatsProvider);
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Repuesto trasladado exitosamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 }
 
 // ─── Detail Section Widget ───────────────────────────────────
@@ -1211,10 +1362,12 @@ Color _colorForEstado(String estado) {
       return Colors.green;
     case 'vendido':
       return Colors.blue;
+    case 'reservado':
+      return Colors.orange;
     case 'faltante':
       return Colors.red;
     case 'dañado':
-      return Colors.orange;
+      return Colors.deepOrange;
     case 'intercambiado':
       return Colors.purple;
     case 'descartado':
@@ -1230,6 +1383,8 @@ IconData _iconForEstado(String estado) {
       return Icons.check_circle;
     case 'vendido':
       return Icons.shopping_cart;
+    case 'reservado':
+      return Icons.bookmark;
     case 'faltante':
       return Icons.remove_circle;
     case 'dañado':

@@ -6,6 +6,7 @@ import '../features/auth/screens/login_screen.dart';
 import '../features/dashboard/screens/dashboard_screen.dart';
 import '../features/vehiculos/screens/vehiculos_list_screen.dart';
 import '../features/vehiculos/screens/vehiculo_form_screen.dart';
+import '../features/vehiculos/screens/vehiculo_detalle_screen.dart';
 import '../features/vehiculos/screens/condiciones_ingreso_screen.dart';
 import '../features/inventario/screens/inventario_screen.dart';
 import '../features/ventas/screens/ventas_screen.dart';
@@ -13,6 +14,7 @@ import '../features/ventas/screens/nueva_venta_screen.dart';
 import '../features/movimientos/screens/movimientos_screen.dart';
 import '../features/reportes/screens/reportes_screen.dart';
 import '../features/configuracion/screens/configuracion_screen.dart';
+import '../features/reservas/screens/reservas_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -60,6 +62,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(
+            path: '/vehiculos/:id/detalle',
+            builder: (context, state) => VehiculoDetalleScreen(
+              vehiculoId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
             path: '/inventario',
             builder: (context, state) => const InventarioScreen(),
           ),
@@ -74,6 +82,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/movimientos',
             builder: (context, state) => const MovimientosScreen(),
+          ),
+          GoRoute(
+            path: '/reservas',
+            builder: (context, state) => const ReservasScreen(),
           ),
           GoRoute(
             path: '/reportes',
@@ -244,6 +256,7 @@ class AppShell extends ConsumerWidget {
       _MenuItem(Icons.directions_car, 'Vehículos', '/vehiculos'),
       _MenuItem(Icons.inventory_2, 'Inventario', '/inventario'),
       _MenuItem(Icons.point_of_sale, 'Ventas', '/ventas'),
+      _MenuItem(Icons.bookmark, 'Reservas', '/reservas'),
       _MenuItem(Icons.swap_horiz, 'Movimientos', '/movimientos'),
     ];
 
@@ -263,9 +276,10 @@ class AppShell extends ConsumerWidget {
     if (location.startsWith('/vehiculos')) return 1;
     if (location.startsWith('/inventario')) return 2;
     if (location.startsWith('/ventas')) return 3;
-    if (location.startsWith('/movimientos')) return 4;
-    if (location.startsWith('/reportes')) return 5;
-    if (location.startsWith('/configuracion')) return 6;
+    if (location.startsWith('/reservas')) return 4;
+    if (location.startsWith('/movimientos')) return 5;
+    if (location.startsWith('/reportes')) return 6;
+    if (location.startsWith('/configuracion')) return 7;
     return 0;
   }
 
@@ -278,11 +292,13 @@ class AppShell extends ConsumerWidget {
   String _getTitle(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
     if (location.startsWith('/dashboard')) return 'Dashboard';
+    if (location.contains('/detalle')) return 'Detalle Vehículo';
     if (location.contains('/condiciones')) return 'Condiciones de Ingreso';
     if (location.contains('/nuevo') || location.contains('/editar')) return 'Vehículo';
     if (location.startsWith('/vehiculos')) return 'Vehículos';
     if (location.startsWith('/inventario')) return 'Inventario';
     if (location.startsWith('/ventas')) return 'Ventas';
+    if (location.startsWith('/reservas')) return 'Reservas';
     if (location.startsWith('/movimientos')) return 'Movimientos';
     if (location.startsWith('/reportes')) return 'Reportes';
     if (location.startsWith('/configuracion')) return 'Configuración';
