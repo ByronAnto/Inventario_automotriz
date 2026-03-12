@@ -1209,7 +1209,7 @@ class _TrasladarDialogState extends ConsumerState<_TrasladarDialog> {
                     .toList();
 
                 return DropdownButtonFormField<String>(
-                  value: _ubicacionDestinoId,
+                  initialValue: _ubicacionDestinoId,
                   decoration: const InputDecoration(
                     labelText: 'Bodega destino *',
                     isDense: true,

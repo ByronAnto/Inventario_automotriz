@@ -4,13 +4,21 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/models/reserva.dart';
 import '../../../data/models/repuesto.dart';
-import '../../../data/models/ubicacion.dart';
 import '../../inventario/screens/inventario_screen.dart';
 
 // ─── Providers ───────────────────────────────────────────────
 
+class _ReservaEstadoFiltroNotifier extends Notifier<String?> {
+  @override
+  String? build() => 'activa';
+  // ignore: use_setters_to_change_properties
+  void set(String? value) => state = value;
+}
+
 final _reservaEstadoFiltroProvider =
-    StateProvider<String?>((ref) => 'activa');
+    NotifierProvider<_ReservaEstadoFiltroNotifier, String?>(
+  _ReservaEstadoFiltroNotifier.new,
+);
 
 final reservasProvider = FutureProvider<List<Reserva>>((ref) async {
   final client = Supabase.instance.client;
@@ -271,7 +279,7 @@ class _FiltroChip extends StatelessWidget {
           fontSize: 12,
         ),
         onSelected: (_) =>
-            ref.read(_reservaEstadoFiltroProvider.notifier).state = estado,
+            ref.read(_reservaEstadoFiltroProvider.notifier).set(estado),
       ),
     );
   }
@@ -751,7 +759,7 @@ class _NuevaReservaDialogState extends ConsumerState<_NuevaReservaDialog> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        value: _diasExpiracion,
+                        initialValue: _diasExpiracion,
                         decoration: const InputDecoration(
                           labelText: 'Días de reserva',
                           isDense: true,

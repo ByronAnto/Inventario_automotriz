@@ -19,7 +19,17 @@ final ventasProvider = FutureProvider<List<Venta>>((ref) async {
 });
 
 /// Estado del filtro de fecha
-final _ventasFiltroHoyProvider = StateProvider<bool>((ref) => true);
+class _VentasFiltroHoyNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+  // ignore: use_setters_to_change_properties
+  void set(bool value) => state = value;
+}
+
+final _ventasFiltroHoyProvider =
+    NotifierProvider<_VentasFiltroHoyNotifier, bool>(
+  _VentasFiltroHoyNotifier.new,
+);
 
 class VentasScreen extends ConsumerWidget {
   const VentasScreen({super.key});
@@ -85,8 +95,8 @@ class VentasScreen extends ConsumerWidget {
                       label: Text(soloHoy ? 'Hoy' : 'Todas'),
                       selected: soloHoy,
                       onSelected: (_) {
-                        ref.read(_ventasFiltroHoyProvider.notifier).state =
-                            !soloHoy;
+                        ref.read(_ventasFiltroHoyProvider.notifier).set(
+                            !soloHoy);
                       },
                     ),
                   ],
@@ -115,7 +125,7 @@ class VentasScreen extends ConsumerWidget {
                               TextButton(
                                 onPressed: () => ref
                                     .read(_ventasFiltroHoyProvider.notifier)
-                                    .state = false,
+                                    .set(false),
                                 child: const Text('Ver todas las ventas'),
                               ),
                             ],

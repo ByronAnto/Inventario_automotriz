@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../data/providers/auth_provider.dart';
 import '../../../data/models/vehiculo.dart';
 
 // ─── Modelo auxiliar: Vehículo con conteos ───────────────────
@@ -82,7 +81,17 @@ final vehiculosProvider = FutureProvider<List<Vehiculo>>((ref) async {
 });
 
 // ─── Filtro de estado ────────────────────────────────────────
-final _vehiculoEstadoFiltroProvider = StateProvider<String?>((ref) => null);
+class _VehiculoEstadoFiltroNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+  // ignore: use_setters_to_change_properties
+  void set(String? value) => state = value;
+}
+
+final _vehiculoEstadoFiltroProvider =
+    NotifierProvider<_VehiculoEstadoFiltroNotifier, String?>(
+  _VehiculoEstadoFiltroNotifier.new,
+);
 
 // ─── Screen ──────────────────────────────────────────────────
 class VehiculosListScreen extends ConsumerWidget {
@@ -184,7 +193,7 @@ class VehiculosListScreen extends ConsumerWidget {
                                 onTap: () => ref
                                     .read(_vehiculoEstadoFiltroProvider
                                         .notifier)
-                                    .state = null,
+                                    .set(null),
                               ),
                               ...estadoConteo.entries.map((e) => _EstadoChip(
                                     label: e.key
@@ -196,9 +205,9 @@ class VehiculosListScreen extends ConsumerWidget {
                                     onTap: () => ref
                                         .read(_vehiculoEstadoFiltroProvider
                                             .notifier)
-                                        .state = filtroEstado == e.key
+                                        .set(filtroEstado == e.key
                                             ? null
-                                            : e.key,
+                                            : e.key),
                                   )),
                             ],
                           ),

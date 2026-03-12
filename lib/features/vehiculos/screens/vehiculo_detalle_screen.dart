@@ -38,7 +38,17 @@ class _VehiculoDetalle {
 }
 
 // ─── Filtro de estado de repuestos ───────────────────────────
-final _repuestoEstadoFiltroProvider = StateProvider<String?>((ref) => null);
+class _RepuestoEstadoFiltroNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+  // ignore: use_setters_to_change_properties
+  void set(String? value) => state = value;
+}
+
+final _repuestoEstadoFiltroProvider =
+    NotifierProvider<_RepuestoEstadoFiltroNotifier, String?>(
+  _RepuestoEstadoFiltroNotifier.new,
+);
 
 // ─── Screen ──────────────────────────────────────────────────
 class VehiculoDetalleScreen extends ConsumerWidget {
@@ -227,7 +237,7 @@ class VehiculoDetalleScreen extends ConsumerWidget {
         ),
         onSelected: (_) => ref
             .read(_repuestoEstadoFiltroProvider.notifier)
-            .state = selected ? null : estado,
+            .set(selected ? null : estado),
       ),
     );
   }
