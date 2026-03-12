@@ -957,7 +957,7 @@ BEGIN
       FROM repuestos r
       LEFT JOIN catalogo_partes cp ON r.catalogo_parte_id = cp.id
       WHERE r.id = v_repuesto_id
-      FOR UPDATE;
+      FOR UPDATE OF r;
 
     IF v_estado IS NULL THEN
       RAISE EXCEPTION 'Repuesto no encontrado: %', v_repuesto_id;
