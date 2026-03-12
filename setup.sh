@@ -181,11 +181,11 @@ done
 
 # ─── 5. Construir y levantar todos los servicios ─────────────────────
 echo ""
-echo -e "${YELLOW}⏳ Construyendo imagen del frontend web...${NC}"
+echo -e "${YELLOW}⏳ Construyendo imagen del frontend web (sin cache)...${NC}"
 echo -e "   (esto puede tomar 2-5 minutos la primera vez)"
 echo ""
 
-docker compose build web-app
+docker compose build --no-cache web-app
 
 echo ""
 echo -e "${YELLOW}⏳ Levantando todos los servicios (force-recreate)...${NC}"
