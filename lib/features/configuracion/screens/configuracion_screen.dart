@@ -3,8 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../config/supabase_config.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/models/catalogo_parte.dart';
+import '../../../data/models/perfil.dart';
 import '../../../data/models/tipo_vehiculo.dart';
 import '../../../core/constants/app_constants.dart';
+
+// Provider de perfiles (usuarios)
+final perfilesProvider = FutureProvider<List<Perfil>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final data = await supabase
+      .from('perfiles')
+      .select()
+      .order('created_at', ascending: false);
+  return data.map((e) => Perfil.fromJson(e)).toList();
+});
 
 // Provider de tipos de vehículo
 final tiposVehiculoProvider = FutureProvider<List<TipoVehiculo>>((ref) async {
@@ -55,7 +66,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -71,7 +82,9 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
         TabBar(
           controller: _tabController,
           labelColor: Theme.of(context).primaryColor,
+          isScrollable: true,
           tabs: const [
+            Tab(icon: Icon(Icons.people), text: 'Usuarios'),
             Tab(icon: Icon(Icons.category), text: 'Catálogo de Partes'),
             Tab(icon: Icon(Icons.directions_car), text: 'Tipos de Vehículo'),
             Tab(icon: Icon(Icons.tune), text: 'Plantillas'),
@@ -82,6 +95,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen>
           child: TabBarView(
             controller: _tabController,
             children: const [
+              _UsuariosTab(),
               _CatalogoPartesTab(),
               _TiposVehiculoTab(),
               _PlantillasTab(),
@@ -673,6 +687,590 @@ class _ServidorTabState extends State<_ServidorTab> {
           style: TextStyle(fontFamily: 'monospace', fontSize: 13),
         ),
       ],
+    );
+  }
+}
+
+// ============================================
+// TAB 5: Gestión de Usuarios
+// ============================================
+class _UsuariosTab extends ConsumerWidget {
+  const _UsuariosTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final perfiles = ref.watch(perfilesProvider);
+    final currentUser = ref.watch(authProvider).perfil;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: perfiles.when(
+        data: (lista) {
+          if (lista.isEmpty) {
+            return const Center(child: Text('No hay usuarios registrados.'));
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: lista.length,
+            itemBuilder: (context, index) {
+              final perfil = lista[index];
+              final esUsuarioActual = perfil.userId == currentUser?.userId;
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: _rolColor(perfil.rol),
+                    child: Text(
+                      perfil.nombre.isNotEmpty
+                          ? perfil.nombre[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          perfil.nombre,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (esUsuarioActual) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text('Tú',
+                              style: TextStyle(fontSize: 11, color: Colors.blue)),
+                        ),
+                      ],
+                    ],
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(perfil.email ?? 'Sin email'),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          _RolChip(rol: perfil.rol),
+                          const SizedBox(width: 8),
+                          if (perfil.comisionPorcentaje != null &&
+                              perfil.comisionPorcentaje! > 0)
+                            Chip(
+                              label: Text(
+                                'Comisión: ${perfil.comisionPorcentaje!.toStringAsFixed(1)}%',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                            ),
+                          const Spacer(),
+                          Icon(
+                            perfil.activo
+                                ? Icons.check_circle
+                                : Icons.cancel,
+                            color:
+                                perfil.activo ? Colors.green : Colors.red,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            perfil.activo ? 'Activo' : 'Inactivo',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color:
+                                  perfil.activo ? Colors.green : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  isThreeLine: true,
+                  trailing: esUsuarioActual
+                      ? null
+                      : PopupMenuButton<String>(
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'editar':
+                                _showEditDialog(context, ref, perfil);
+                                break;
+                              case 'toggle':
+                                _toggleActivo(ref, perfil);
+                                break;
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'editar',
+                              child: ListTile(
+                                leading: Icon(Icons.edit),
+                                title: Text('Editar'),
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'toggle',
+                              child: ListTile(
+                                leading: Icon(
+                                  perfil.activo
+                                      ? Icons.person_off
+                                      : Icons.person,
+                                ),
+                                title: Text(
+                                  perfil.activo
+                                      ? 'Desactivar'
+                                      : 'Activar',
+                                ),
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              );
+            },
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error al cargar usuarios: $e')),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showCreateDialog(context, ref),
+        icon: const Icon(Icons.person_add),
+        label: const Text('Nuevo Usuario'),
+      ),
+    );
+  }
+
+  Color _rolColor(String rol) {
+    switch (rol) {
+      case 'administrador':
+        return Colors.indigo;
+      case 'vendedor':
+        return Colors.teal;
+      case 'mecanico':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Future<void> _toggleActivo(WidgetRef ref, Perfil perfil) async {
+    final supabase = ref.read(supabaseClientProvider);
+    await supabase
+        .from('perfiles')
+        .update({'activo': !perfil.activo}).eq('id', perfil.id);
+    ref.invalidate(perfilesProvider);
+  }
+
+  void _showCreateDialog(BuildContext context, WidgetRef ref) {
+    final emailCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final nombreCtrl = TextEditingController();
+    final telefonoCtrl = TextEditingController();
+    final comisionCtrl = TextEditingController(text: '0');
+    String selectedRol = 'vendedor';
+    bool obscurePassword = true;
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Crear Nuevo Usuario'),
+          content: SizedBox(
+            width: 400,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: nombreCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre completo *',
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Requerido' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: emailCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Correo electrónico *',
+                        prefixIcon: Icon(Icons.email),
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Requerido';
+                        if (!v.contains('@')) return 'Email inválido';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: passwordCtrl,
+                      obscureText: obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'Contraseña *',
+                        prefixIcon: const Icon(Icons.lock),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(obscurePassword
+                              ? Icons.visibility
+                              : Icons.visibility_off),
+                          onPressed: () => setDialogState(
+                              () => obscurePassword = !obscurePassword),
+                        ),
+                      ),
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Requerido';
+                        if (v.length < 6) return 'Mínimo 6 caracteres';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: telefonoCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Teléfono',
+                        prefixIcon: Icon(Icons.phone),
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedRol,
+                      decoration: const InputDecoration(
+                        labelText: 'Rol *',
+                        prefixIcon: Icon(Icons.badge),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'administrador',
+                          child: Text('Administrador'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'vendedor',
+                          child: Text('Vendedor'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'mecanico',
+                          child: Text('Mecánico'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDialogState(() => selectedRol = v);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    if (selectedRol == 'vendedor')
+                      TextFormField(
+                        controller: comisionCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Comisión (%)',
+                          prefixIcon: Icon(Icons.percent),
+                          border: OutlineInputBorder(),
+                          helperText: 'Porcentaje de comisión por venta',
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        validator: (v) {
+                          if (v != null && v.isNotEmpty) {
+                            final n = double.tryParse(v);
+                            if (n == null || n < 0 || n > 100) {
+                              return 'Debe ser entre 0 y 100';
+                            }
+                          }
+                          return null;
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+
+                // Mostrar loading
+                showDialog(
+                  context: ctx,
+                  barrierDismissible: false,
+                  builder: (_) => const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+
+                try {
+                  await ref.read(authProvider.notifier).createUser(
+                        email: emailCtrl.text.trim(),
+                        password: passwordCtrl.text,
+                        nombre: nombreCtrl.text.trim(),
+                        rol: selectedRol,
+                        telefono: telefonoCtrl.text.trim().isNotEmpty
+                            ? telefonoCtrl.text.trim()
+                            : null,
+                        comision: selectedRol == 'vendedor'
+                            ? double.tryParse(comisionCtrl.text)
+                            : null,
+                      );
+
+                  ref.invalidate(perfilesProvider);
+
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx); // loading
+                    Navigator.pop(ctx); // dialog
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            'Usuario "${nombreCtrl.text.trim()}" creado exitosamente'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx); // loading
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.save),
+              label: const Text('Crear Usuario'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref, Perfil perfil) {
+    final nombreCtrl = TextEditingController(text: perfil.nombre);
+    final telefonoCtrl = TextEditingController(text: perfil.telefono ?? '');
+    final comisionCtrl = TextEditingController(
+        text: (perfil.comisionPorcentaje ?? 0).toString());
+    String selectedRol = perfil.rol;
+    bool activo = perfil.activo;
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Editar: ${perfil.nombre}'),
+          content: SizedBox(
+            width: 400,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Email (solo lectura)
+                    TextFormField(
+                      initialValue: perfil.email ?? '',
+                      enabled: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Correo electrónico',
+                        prefixIcon: Icon(Icons.email),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: nombreCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre completo *',
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Requerido' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: telefonoCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Teléfono',
+                        prefixIcon: Icon(Icons.phone),
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedRol,
+                      decoration: const InputDecoration(
+                        labelText: 'Rol *',
+                        prefixIcon: Icon(Icons.badge),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'administrador',
+                          child: Text('Administrador'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'vendedor',
+                          child: Text('Vendedor'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'mecanico',
+                          child: Text('Mecánico'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDialogState(() => selectedRol = v);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    if (selectedRol == 'vendedor')
+                      TextFormField(
+                        controller: comisionCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Comisión (%)',
+                          prefixIcon: Icon(Icons.percent),
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        validator: (v) {
+                          if (v != null && v.isNotEmpty) {
+                            final n = double.tryParse(v);
+                            if (n == null || n < 0 || n > 100) {
+                              return 'Debe ser entre 0 y 100';
+                            }
+                          }
+                          return null;
+                        },
+                      ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      title: const Text('Usuario activo'),
+                      subtitle: Text(activo
+                          ? 'Puede iniciar sesión'
+                          : 'No puede iniciar sesión'),
+                      value: activo,
+                      onChanged: (v) => setDialogState(() => activo = v),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+
+                final supabase = ref.read(supabaseClientProvider);
+                final updates = <String, dynamic>{
+                  'nombre': nombreCtrl.text.trim(),
+                  'telefono': telefonoCtrl.text.trim().isNotEmpty
+                      ? telefonoCtrl.text.trim()
+                      : null,
+                  'rol': selectedRol,
+                  'activo': activo,
+                  'comision_porcentaje': selectedRol == 'vendedor'
+                      ? double.tryParse(comisionCtrl.text) ?? 0
+                      : null,
+                };
+
+                await supabase
+                    .from('perfiles')
+                    .update(updates)
+                    .eq('id', perfil.id);
+
+                ref.invalidate(perfilesProvider);
+
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          'Usuario "${nombreCtrl.text.trim()}" actualizado'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.save),
+              label: const Text('Guardar Cambios'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Widget para mostrar el chip de rol con color
+class _RolChip extends StatelessWidget {
+  final String rol;
+  const _RolChip({required this.rol});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (rol) {
+      'administrador' => ('Admin', Colors.indigo),
+      'vendedor' => ('Vendedor', Colors.teal),
+      'mecanico' => ('Mecánico', Colors.orange),
+      _ => (rol, Colors.grey),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 0.5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
     );
   }
 }
