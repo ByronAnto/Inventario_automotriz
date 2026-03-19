@@ -235,26 +235,25 @@ class _StatCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => context.go(route),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 8),
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: 4),
               Text(
                 value,
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: color,
                 ),
               ),
-              const SizedBox(height: 4),
               Text(
                 label,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                maxLines: 2,
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ],

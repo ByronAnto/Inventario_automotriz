@@ -119,12 +119,19 @@ final routerProvider = Provider<GoRouter>((ref) {
 });
 
 // Shell principal con navegación lateral (drawer) o bottom nav
-class AppShell extends ConsumerWidget {
+class AppShell extends ConsumerStatefulWidget {
   final Widget child;
   const AppShell({super.key, required this.child});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
     final isWide = MediaQuery.of(context).size.width > 800;
 
@@ -189,7 +196,7 @@ class AppShell extends ConsumerWidget {
                   .toList(),
             ),
             const VerticalDivider(thickness: 1, width: 1),
-            Expanded(child: child),
+            Expanded(child: widget.child),
           ],
         ),
       );
@@ -198,10 +205,9 @@ class AppShell extends ConsumerWidget {
     // Layout móvil: Drawer
     final location = GoRouterState.of(context).matchedLocation;
     final isOnDashboard = location.startsWith('/dashboard');
-    final scaffoldKey = GlobalKey<ScaffoldState>();
 
     return Scaffold(
-      key: scaffoldKey,
+      key: _scaffoldKey,
       appBar: AppBar(
         leading: isOnDashboard
             ? null // Muestra el ícono del Drawer automáticamente
@@ -216,7 +222,7 @@ class AppShell extends ConsumerWidget {
           if (!isOnDashboard)
             IconButton(
               icon: const Icon(Icons.menu),
-              onPressed: () => scaffoldKey.currentState?.openDrawer(),
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
               tooltip: 'Menú',
             ),
           if (auth.perfil != null)
@@ -282,7 +288,7 @@ class AppShell extends ConsumerWidget {
           ],
         ),
       ),
-      body: child,
+      body: widget.child,
     );
   }
 

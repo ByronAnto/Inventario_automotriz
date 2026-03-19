@@ -392,7 +392,9 @@ class _VehiculoInfoCard extends StatelessWidget {
             ],
             const SizedBox(height: 8),
             // Condiciones
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
               children: [
                 if (v.condicionesRegistradas)
                   const Chip(
@@ -401,6 +403,8 @@ class _VehiculoInfoCard extends StatelessWidget {
                     label: Text('Inspección registrada',
                         style: TextStyle(fontSize: 11)),
                     backgroundColor: Color(0xFFE8F5E9),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
                   )
                 else
                   Chip(
@@ -409,13 +413,16 @@ class _VehiculoInfoCard extends StatelessWidget {
                     label: const Text('Sin inspección',
                         style: TextStyle(fontSize: 11)),
                     backgroundColor: Colors.orange.withValues(alpha: 0.1),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
                   ),
-                const SizedBox(width: 8),
                 Chip(
                   avatar: const Icon(Icons.bar_chart,
                       size: 16, color: Colors.blue),
                   label: Text('Completitud: ${v.completitud}%',
                       style: const TextStyle(fontSize: 11)),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
