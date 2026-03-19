@@ -117,24 +117,28 @@ class DashboardScreen extends ConsumerWidget {
           label: 'Vehículos',
           value: '${data['vehiculos'] ?? 0}',
           color: const Color(0xFF1565C0),
+          route: '/vehiculos',
         ),
         _StatCard(
           icon: Icons.inventory_2,
           label: 'Repuestos disponibles',
           value: '${data['repuestos_disponibles'] ?? 0}',
           color: const Color(0xFF2E7D32),
+          route: '/inventario',
         ),
         _StatCard(
           icon: Icons.attach_money,
           label: 'Ventas del mes',
           value: '\$${(data['ventas_mes'] as double? ?? 0).toStringAsFixed(2)}',
           color: const Color(0xFFFF6F00),
+          route: '/ventas',
         ),
         _StatCard(
           icon: Icons.pending_actions,
           label: 'Pendientes inspección',
           value: '${data['pendientes_condiciones'] ?? 0}',
           color: const Color(0xFFC62828),
+          route: '/vehiculos',
         ),
       ],
     );
@@ -214,41 +218,47 @@ class _StatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final String route;
 
   const _StatCard({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    required this.route,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: color,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => context.go(route),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );

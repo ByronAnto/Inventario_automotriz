@@ -72,25 +72,31 @@ final inventarioFiltrosProvider =
 
 // ─── Providers ───────────────────────────────────────────────
 
+const _kSelectColumns =
+    'id, vehiculo_id, catalogo_parte_id, estado, ubicacion_id, '
+    'precio_sugerido, origen, proveedor_externo, costo_externo, notas, fotos, '
+    'created_at, ext_marca_id, ext_modelo_id, ext_anio, '
+    'catalogo_partes(nombre, categoria), ubicaciones(nombre), '
+    'vehiculos(anio, marcas(nombre), modelos(nombre))';
+
+const _kPageSize = 50;
+
 final inventarioProvider = FutureProvider<List<Repuesto>>((ref) async {
   final filtros = ref.watch(inventarioFiltrosProvider);
   var query = Supabase.instance.client.from('repuestos').select(
-    '*, catalogo_partes(*), ubicaciones(*), vehiculos(*, marcas(*), modelos(*))',
+    _kSelectColumns,
   );
 
   if (filtros.estado != null && filtros.estado != '__all__') {
-    // User selected a specific estado
     query = query.eq('estado', filtros.estado!);
   } else if (filtros.estado == null) {
-    // Default: hide vendidos
     query = query.neq('estado', 'vendido');
   }
-  // When filtros.estado == '__all__', no filter → show everything
   if (filtros.ubicacionId != null) {
     query = query.eq('ubicacion_id', filtros.ubicacionId!);
   }
 
-  final data = await query.order('created_at', ascending: false);
+  final data = await query.order('created_at', ascending: false).limit(_kPageSize);
   var repuestos = data.map((e) => Repuesto.fromJson(e)).toList();
 
   // Filtros client-side
@@ -118,6 +124,46 @@ final inventarioProvider = FutureProvider<List<Repuesto>>((ref) async {
 
   return repuestos;
 });
+
+/// Carga más repuestos (paginación offset)
+Future<List<Repuesto>> _fetchMoreRepuestos(
+    InventarioFiltros filtros, int offset) async {
+  var query = Supabase.instance.client.from('repuestos').select(_kSelectColumns);
+  if (filtros.estado != null && filtros.estado != '__all__') {
+    query = query.eq('estado', filtros.estado!);
+  } else if (filtros.estado == null) {
+    query = query.neq('estado', 'vendido');
+  }
+  if (filtros.ubicacionId != null) {
+    query = query.eq('ubicacion_id', filtros.ubicacionId!);
+  }
+  final data = await query
+      .order('created_at', ascending: false)
+      .range(offset, offset + _kPageSize - 1);
+  var repuestos = data.map((e) => Repuesto.fromJson(e)).toList();
+  if (filtros.categoria != null) {
+    repuestos =
+        repuestos.where((r) => r.parteCategoria == filtros.categoria).toList();
+  }
+  if (filtros.marcaNombre != null) {
+    repuestos =
+        repuestos.where((r) => r.vehiculoMarca == filtros.marcaNombre).toList();
+  }
+  if (filtros.busqueda != null && filtros.busqueda!.isNotEmpty) {
+    final term = filtros.busqueda!.toLowerCase();
+    repuestos = repuestos.where((r) {
+      final nombre = (r.parteNombre ?? '').toLowerCase();
+      final vehiculo = (r.vehiculoNombre ?? '').toLowerCase();
+      final marca = (r.vehiculoMarca ?? '').toLowerCase();
+      final ubicacion = (r.ubicacionNombre ?? '').toLowerCase();
+      return nombre.contains(term) ||
+          vehiculo.contains(term) ||
+          marca.contains(term) ||
+          ubicacion.contains(term);
+    }).toList();
+  }
+  return repuestos;
+}
 
 final ubicacionesInventarioProvider =
     FutureProvider<List<Ubicacion>>((ref) async {
@@ -170,16 +216,77 @@ final proveedoresExternoProvider = FutureProvider<List<Proveedor>>((ref) async {
 
 // ─── Screen ──────────────────────────────────────────────────
 
-class InventarioScreen extends ConsumerWidget {
+class InventarioScreen extends ConsumerStatefulWidget {
   const InventarioScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<InventarioScreen> createState() => _InventarioScreenState();
+}
+
+class _InventarioScreenState extends ConsumerState<InventarioScreen> {
+  final ScrollController _scrollController = ScrollController();
+  final List<Repuesto> _allRepuestos = [];
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  bool _initialLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final filtros = ref.read(inventarioFiltrosProvider);
+      final more = await _fetchMoreRepuestos(filtros, _allRepuestos.length);
+      setState(() {
+        _allRepuestos.addAll(more);
+        _hasMore = more.length >= _kPageSize;
+        _isLoadingMore = false;
+      });
+    } catch (_) {
+      setState(() => _isLoadingMore = false);
+    }
+  }
+
+  void _resetPagination() {
+    _allRepuestos.clear();
+    _hasMore = true;
+    _isLoadingMore = false;
+    _initialLoaded = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final inventario = ref.watch(inventarioProvider);
     final filtros = ref.watch(inventarioFiltrosProvider);
     final ubicaciones = ref.watch(ubicacionesInventarioProvider);
     final marcas = ref.watch(marcasInventarioProvider);
     final isWide = MediaQuery.of(context).size.width > 600;
+
+    // Reset pagination when provider is re-loading (filters changed)
+    if (inventario.isLoading && _initialLoaded) {
+      _resetPagination();
+    }
 
     return Scaffold(
       body: Column(
@@ -201,19 +308,28 @@ class InventarioScreen extends ConsumerWidget {
 
           // Results count
           inventario.whenOrNull(
-                data: (reps) => Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${reps.length} repuesto${reps.length != 1 ? "s" : ""} encontrado${reps.length != 1 ? "s" : ""}',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
+                data: (reps) {
+                  // Sincronizar paginación con datos iniciales
+                  if (!_initialLoaded) {
+                    _allRepuestos.clear();
+                    _allRepuestos.addAll(reps);
+                    _hasMore = reps.length >= _kPageSize;
+                    _initialLoaded = true;
+                  }
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${_allRepuestos.length} repuesto${_allRepuestos.length != 1 ? "s" : ""} ${_hasMore ? "(cargando más...)" : "encontrado${_allRepuestos.length != 1 ? "s" : ""}"}',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ) ??
               const SizedBox.shrink(),
 
@@ -232,6 +348,7 @@ class InventarioScreen extends ConsumerWidget {
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: () {
+                        _resetPagination();
                         ref.invalidate(inventarioProvider);
                         ref.invalidate(inventarioStatsProvider);
                       },
@@ -242,7 +359,7 @@ class InventarioScreen extends ConsumerWidget {
                 ),
               ),
               data: (repuestos) {
-                if (repuestos.isEmpty) {
+                if (_allRepuestos.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -264,9 +381,12 @@ class InventarioScreen extends ConsumerWidget {
                         if (filtros.hasActiveFilters) ...[
                           const SizedBox(height: 16),
                           OutlinedButton.icon(
-                            onPressed: () => ref
-                                .read(inventarioFiltrosProvider.notifier)
-                                .update((_) => InventarioFiltros()),
+                            onPressed: () {
+                              _resetPagination();
+                              ref
+                                  .read(inventarioFiltrosProvider.notifier)
+                                  .update((_) => InventarioFiltros());
+                            },
                             icon: const Icon(Icons.clear_all),
                             label: const Text('Limpiar filtros'),
                           ),
@@ -276,10 +396,17 @@ class InventarioScreen extends ConsumerWidget {
                   );
                 }
 
+                final totalItems =
+                    _allRepuestos.length + (_isLoadingMore ? 1 : 0);
+
                 return RefreshIndicator(
-                  onRefresh: () => ref.refresh(inventarioProvider.future),
+                  onRefresh: () async {
+                    _resetPagination();
+                    return ref.refresh(inventarioProvider.future);
+                  },
                   child: isWide
                       ? GridView.builder(
+                          controller: _scrollController,
                           padding: const EdgeInsets.all(12),
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
@@ -291,15 +418,34 @@ class InventarioScreen extends ConsumerWidget {
                             crossAxisSpacing: 12,
                             mainAxisSpacing: 12,
                           ),
-                          itemCount: repuestos.length,
-                          itemBuilder: (context, index) =>
-                              _RepuestoCard(repuesto: repuestos[index]),
+                          itemCount: totalItems,
+                          itemBuilder: (context, index) {
+                            if (index >= _allRepuestos.length) {
+                              return const Center(
+                                  child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: CircularProgressIndicator(),
+                              ));
+                            }
+                            return _RepuestoCard(
+                                repuesto: _allRepuestos[index]);
+                          },
                         )
                       : ListView.builder(
+                          controller: _scrollController,
                           padding: const EdgeInsets.all(8),
-                          itemCount: repuestos.length,
-                          itemBuilder: (context, index) =>
-                              _RepuestoCard(repuesto: repuestos[index]),
+                          itemCount: totalItems,
+                          itemBuilder: (context, index) {
+                            if (index >= _allRepuestos.length) {
+                              return const Center(
+                                  child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: CircularProgressIndicator(),
+                              ));
+                            }
+                            return _RepuestoCard(
+                                repuesto: _allRepuestos[index]);
+                          },
                         ),
                 );
               },

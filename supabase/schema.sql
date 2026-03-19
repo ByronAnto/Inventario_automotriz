@@ -261,6 +261,10 @@ CREATE INDEX IF NOT EXISTS idx_repuestos_ubicacion_id ON repuestos(ubicacion_id)
 CREATE INDEX IF NOT EXISTS idx_repuestos_origen ON repuestos(origen);
 CREATE INDEX IF NOT EXISTS idx_repuestos_ext_marca_id ON repuestos(ext_marca_id);
 CREATE INDEX IF NOT EXISTS idx_repuestos_ext_modelo_id ON repuestos(ext_modelo_id);
+-- Composite indexes for pagination and filtered queries
+CREATE INDEX IF NOT EXISTS idx_repuestos_estado_created ON repuestos(estado, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_repuestos_created_at ON repuestos(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_repuestos_estado_ubicacion ON repuestos(estado, ubicacion_id);
 CREATE INDEX IF NOT EXISTS idx_ventas_vendedor_id ON ventas(vendedor_id);
 CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
 CREATE INDEX IF NOT EXISTS idx_venta_detalle_venta_id ON venta_detalle(venta_id);
