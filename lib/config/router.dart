@@ -17,6 +17,7 @@ import '../features/movimientos/screens/movimientos_screen.dart';
 import '../features/reportes/screens/reportes_screen.dart';
 import '../features/configuracion/screens/configuracion_screen.dart';
 import '../features/reservas/screens/reservas_screen.dart';
+import '../features/vehiculos/screens/venta_vehiculo_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -81,6 +82,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/vehiculos/:id/detalle',
             builder: (context, state) => VehiculoDetalleScreen(
+              vehiculoId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/vehiculos/:id/vender',
+            builder: (context, state) => VentaVehiculoScreen(
               vehiculoId: state.pathParameters['id']!,
             ),
           ),

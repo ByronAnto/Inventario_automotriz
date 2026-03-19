@@ -91,6 +91,16 @@ class VehiculoDetalleScreen extends ConsumerWidget {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
+                const PopupMenuItem(
+                  value: 'vender_completo',
+                  child: ListTile(
+                    leading: Icon(Icons.sell, color: Colors.green),
+                    title: Text('Vender vehículo completo',
+                        style: TextStyle(color: Colors.green)),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
                 if (auth.isAdmin)
                   const PopupMenuItem(
                     value: 'eliminar',
@@ -249,6 +259,9 @@ class VehiculoDetalleScreen extends ConsumerWidget {
         break;
       case 'condiciones':
         context.go('/vehiculos/$vehiculoId/condiciones');
+        break;
+      case 'vender_completo':
+        context.go('/vehiculos/$vehiculoId/vender');
         break;
       case 'eliminar':
         _confirmarEliminar(context, ref);
