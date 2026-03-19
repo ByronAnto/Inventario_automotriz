@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../config/supabase_config.dart';
 import '../../../data/providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -30,6 +34,76 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _passwordController.text,
           );
     }
+  }
+
+  void _mostrarConfigServidor(BuildContext context) {
+    final urlCtrl = TextEditingController(text: SupabaseConfig.supabaseUrl);
+    final keyCtrl = TextEditingController(text: SupabaseConfig.supabaseAnonKey);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.dns_outlined, color: Color(0xFF1565C0)),
+            SizedBox(width: 8),
+            Text('Servidor', style: TextStyle(fontSize: 18)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: urlCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'URL del Servidor',
+                  hintText: 'http://192.168.1.100:8000',
+                  prefixIcon: Icon(Icons.link),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                keyboardType: TextInputType.url,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: keyCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Anon Key',
+                  prefixIcon: Icon(Icons.key),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                maxLines: 1,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.save),
+            label: const Text('Guardar y Reiniciar'),
+            onPressed: () async {
+              final url = urlCtrl.text.trim();
+              final key = keyCtrl.text.trim();
+              if (url.isEmpty || key.isEmpty) return;
+              final cleanUrl =
+                  url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+              await SupabaseConfig.save(url: cleanUrl, anonKey: key);
+              if (Platform.isAndroid) {
+                SystemNavigator.pop();
+              } else {
+                exit(0);
+              }
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -168,10 +242,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               : const Text('Iniciar Sesión'),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Text(
                         'v1.0.0',
                         style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      // Indicador del servidor actual + botón para cambiar
+                      GestureDetector(
+                        onTap: () => _mostrarConfigServidor(context),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.dns_outlined,
+                                size: 12, color: Colors.grey[400]),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                SupabaseConfig.supabaseUrl,
+                                style: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.edit,
+                                size: 10, color: Colors.grey[400]),
+                          ],
+                        ),
                       ),
                     ],
                   ),

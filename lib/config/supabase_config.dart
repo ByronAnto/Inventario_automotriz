@@ -41,11 +41,21 @@ class SupabaseConfig {
   static const String vehiculosBucket = 'vehiculos';
   static const String repuestosBucket = 'repuestos';
 
+  /// Indica si la app necesita configuración inicial del servidor.
+  /// Es true cuando no hay config guardada Y el default es localhost
+  /// (es decir, no se compiló con --dart-define).
+  static bool needsSetup = false;
+
   /// Cargar configuración guardada (llamar antes de Supabase.initialize)
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     supabaseUrl = prefs.getString(_urlKey) ?? _defaultUrl;
     supabaseAnonKey = prefs.getString(_anonKeyKey) ?? _defaultAnonKey;
+
+    // Detectar si necesita setup: no hay config guardada y el default es localhost
+    final hasCustom = prefs.containsKey(_urlKey);
+    final isLocalDefault = _defaultUrl == 'http://localhost:8000';
+    needsSetup = !hasCustom && isLocalDefault;
   }
 
   /// Guardar nueva configuración de backend

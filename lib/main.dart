@@ -11,6 +11,8 @@ void main() async {
   // Cargar configuración guardada (URL del backend)
   await SupabaseConfig.load();
 
+  // Siempre inicializar Supabase (solo crea el cliente, no conecta aún).
+  // Si needsSetup=true, el router redirige a /setup antes de cualquier request.
   await Supabase.initialize(
     url: SupabaseConfig.supabaseUrl,
     anonKey: SupabaseConfig.supabaseAnonKey,

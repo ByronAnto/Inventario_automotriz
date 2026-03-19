@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../data/providers/auth_provider.dart';
+import '../config/supabase_config.dart';
 import '../features/auth/screens/login_screen.dart';
+import '../features/auth/screens/server_setup_screen.dart';
 import '../features/dashboard/screens/dashboard_screen.dart';
 import '../features/vehiculos/screens/vehiculos_list_screen.dart';
 import '../features/vehiculos/screens/vehiculo_form_screen.dart';
@@ -20,16 +22,31 @@ final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: SupabaseConfig.needsSetup ? '/setup' : '/login',
     redirect: (context, state) {
+      final isSetupRoute = state.matchedLocation == '/setup';
+
+      // Si necesita setup, forzar a la pantalla de configuración
+      if (SupabaseConfig.needsSetup) {
+        return isSetupRoute ? null : '/setup';
+      }
+
+      // Flujo normal de autenticación
       final isAuth = authState.status == AuthStatus.authenticated;
       final isLoginRoute = state.matchedLocation == '/login';
+
+      // No permitir acceso a /setup si ya está configurado
+      if (isSetupRoute) return '/login';
 
       if (!isAuth && !isLoginRoute) return '/login';
       if (isAuth && isLoginRoute) return '/dashboard';
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/setup',
+        builder: (context, state) => const ServerSetupScreen(),
+      ),
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
@@ -179,10 +196,29 @@ class AppShell extends ConsumerWidget {
     }
 
     // Layout móvil: Drawer
+    final location = GoRouterState.of(context).matchedLocation;
+    final isOnDashboard = location.startsWith('/dashboard');
+    final scaffoldKey = GlobalKey<ScaffoldState>();
+
     return Scaffold(
+      key: scaffoldKey,
       appBar: AppBar(
+        leading: isOnDashboard
+            ? null // Muestra el ícono del Drawer automáticamente
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => context.go('/dashboard'),
+                tooltip: 'Volver al Dashboard',
+              ),
         title: Text(_getTitle(context)),
         actions: [
+          // Botón de menú cuando no estamos en dashboard (la flecha reemplazó el hamburguesa)
+          if (!isOnDashboard)
+            IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () => scaffoldKey.currentState?.openDrawer(),
+              tooltip: 'Menú',
+            ),
           if (auth.perfil != null)
             Padding(
               padding: const EdgeInsets.only(right: 12),

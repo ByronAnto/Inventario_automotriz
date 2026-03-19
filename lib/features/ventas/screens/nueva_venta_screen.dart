@@ -35,6 +35,7 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
   // Carrito de venta: repuestoId -> precio
   final Map<String, _ItemVenta> _carrito = {};
   String _busqueda = '';
+  bool _showingCart = false; // Móvil: alternar entre lista y carrito
 
   @override
   void dispose() {
@@ -55,62 +56,85 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
     final repuestos = ref.watch(repuestosDisponiblesProvider);
     final isWide = MediaQuery.of(context).size.width > 800;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva Venta'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/ventas'),
+    return PopScope(
+      canPop: isWide || !_showingCart,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          setState(() => _showingCart = false);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(!isWide && _showingCart ? 'Carrito de Venta' : 'Nueva Venta'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (!isWide && _showingCart) {
+                setState(() => _showingCart = false);
+              } else {
+                context.go('/ventas');
+              }
+            },
+          ),
+          actions: !isWide && _showingCart
+              ? [
+                  TextButton.icon(
+                    onPressed: () => setState(() => _showingCart = false),
+                    icon: const Icon(Icons.add_shopping_cart, size: 18),
+                    label: const Text('Agregar más'),
+                  ),
+                ]
+              : null,
         ),
-      ),
-      body: isWide
-          ? Row(
-              children: [
-                // Panel izquierdo: búsqueda de repuestos
-                Expanded(
-                  flex: 3,
-                  child: _buildRepuestosList(repuestos),
-                ),
-                const VerticalDivider(width: 1),
-                // Panel derecho: carrito + datos venta
-                Expanded(
-                  flex: 2,
-                  child: _buildCarritoPanel(),
-                ),
-              ],
-            )
-          : Column(
-              children: [
-                // Carrito resumen arriba
-                if (_carrito.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    child: Row(
-                      children: [
-                        Text(
-                          '${_carrito.length} artículo(s)',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const Spacer(),
-                        Text(
-                          'Total: \$${_total.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
+        body: isWide
+            ? Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: _buildRepuestosList(repuestos),
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(
+                    flex: 2,
+                    child: _buildCarritoPanel(),
+                  ),
+                ],
+              )
+            : _showingCart
+                ? _buildCarritoPanel()
+                : Column(
+                    children: [
+                      // Carrito resumen arriba
+                      if (_carrito.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          child: Row(
+                            children: [
+                              Text(
+                                '${_carrito.length} artículo(s)',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              const Spacer(),
+                              Text(
+                                'Total: \$${_total.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: () => setState(() => _showingCart = true),
+                                child: const Text('Finalizar'),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: () => _mostrarResumenVenta(context),
-                          child: const Text('Finalizar'),
-                        ),
-                      ],
-                    ),
+                      Expanded(child: _buildRepuestosList(repuestos)),
+                    ],
                   ),
-                Expanded(child: _buildRepuestosList(repuestos)),
-              ],
-            ),
+      ),
     );
   }
 
@@ -294,6 +318,7 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
                                 onPressed: () {
                                   setState(() {
                                     _carrito.remove(entry.key);
+                                    if (_carrito.isEmpty) _showingCart = false;
                                   });
                                 },
                               ),
@@ -441,25 +466,8 @@ class _NuevaVentaScreenState extends ConsumerState<NuevaVentaScreen> {
     });
   }
 
-  void _mostrarResumenVenta(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => SingleChildScrollView(
-          controller: scrollController,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: _buildCarritoPanel(),
-          ),
-        ),
-      ),
-    );
-  }
+  // _mostrarResumenVenta ya no se usa; en móvil se alterna
+  // con _showingCart = true para mostrar el carrito a pantalla completa.
 
   Future<void> _finalizarVenta() async {
     if (_carrito.isEmpty) return;
