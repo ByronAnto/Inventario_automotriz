@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -55,12 +56,12 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
   final _clienteNombreCtrl = TextEditingController();
   final _clienteTelefonoCtrl = TextEditingController();
   final _notasCtrl = TextEditingController();
+  final _precioGlobalCtrl = TextEditingController();
   String _metodoPago = 'Efectivo';
   bool _saving = false;
   bool _selectAll = true;
+  double _precioGlobal = 0;
 
-  // repuestoId -> precio editable
-  final Map<String, double> _precios = {};
   // repuestoId -> seleccionado
   final Map<String, bool> _seleccionados = {};
 
@@ -69,24 +70,16 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
     _clienteNombreCtrl.dispose();
     _clienteTelefonoCtrl.dispose();
     _notasCtrl.dispose();
+    _precioGlobalCtrl.dispose();
     super.dispose();
   }
-
-  double get _total => _seleccionados.entries
-      .where((e) => e.value)
-      .fold<double>(0, (sum, e) => sum + (_precios[e.key] ?? 0));
 
   int get _cantidadSeleccionados =>
       _seleccionados.values.where((v) => v).length;
 
-  bool get _tienePreciosCero => _seleccionados.entries
-      .where((e) => e.value)
-      .any((e) => (_precios[e.key] ?? 0) <= 0);
-
-  void _initPrecios(List<Repuesto> repuestos) {
-    if (_precios.isNotEmpty) return; // Ya inicializado
+  void _initSeleccion(List<Repuesto> repuestos) {
+    if (_seleccionados.isNotEmpty) return;
     for (final r in repuestos) {
-      _precios[r.id] = r.precioSugerido ?? 0;
       _seleccionados[r.id] = true;
     }
   }
@@ -100,10 +93,73 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
     });
   }
 
+  /// Distribuye el precio global proporcionalmente según precio_sugerido.
+  /// Las partes sin precio sugerido reciben una porción igual del remanente.
+  List<Map<String, dynamic>> _distribuirPrecios(List<Repuesto> repuestos) {
+    final seleccionados =
+        repuestos.where((r) => _seleccionados[r.id] == true).toList();
+    if (seleccionados.isEmpty || _precioGlobal <= 0) return [];
+
+    final conPrecio =
+        seleccionados.where((r) => (r.precioSugerido ?? 0) > 0).toList();
+    final sinPrecio =
+        seleccionados.where((r) => (r.precioSugerido ?? 0) <= 0).toList();
+
+    final totalSugerido =
+        conPrecio.fold<double>(0, (s, r) => s + r.precioSugerido!);
+
+    final items = <Map<String, dynamic>>[];
+    double acumulado = 0;
+
+    if (totalSugerido > 0) {
+      // Repartir 90% proporcional a los que tienen precio,
+      // 10% equitativo a los sin precio (si los hay)
+      final factorConPrecio = sinPrecio.isEmpty ? 1.0 : 0.9;
+      final montoConPrecio = _precioGlobal * factorConPrecio;
+      final montoSinPrecio = _precioGlobal - montoConPrecio;
+
+      for (final r in conPrecio) {
+        final proporcion = r.precioSugerido! / totalSugerido;
+        final precio =
+            (montoConPrecio * proporcion * 100).roundToDouble() / 100;
+        items.add({'repuesto_id': r.id, 'precio': max(0.01, precio)});
+        acumulado += max(0.01, precio);
+      }
+
+      if (sinPrecio.isNotEmpty) {
+        final precioCada = sinPrecio.length == 1
+            ? montoSinPrecio
+            : (montoSinPrecio / sinPrecio.length * 100).roundToDouble() / 100;
+        for (final r in sinPrecio) {
+          items.add({'repuesto_id': r.id, 'precio': max(0.01, precioCada)});
+          acumulado += max(0.01, precioCada);
+        }
+      }
+    } else {
+      // Todos sin precio sugerido → repartir equitativamente
+      final precioCada = seleccionados.length == 1
+          ? _precioGlobal
+          : (_precioGlobal / seleccionados.length * 100).roundToDouble() / 100;
+      for (final r in seleccionados) {
+        items.add({'repuesto_id': r.id, 'precio': max(0.01, precioCada)});
+        acumulado += max(0.01, precioCada);
+      }
+    }
+
+    // Ajustar diferencia por redondeo al primer item
+    final diff =
+        ((_precioGlobal - acumulado) * 100).roundToDouble() / 100;
+    if (diff.abs() > 0.001 && items.isNotEmpty) {
+      final ajustado = (items[0]['precio'] as double) + diff;
+      items[0]['precio'] = (ajustado * 100).roundToDouble() / 100;
+    }
+
+    return items;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dataAsync = ref.watch(_repuestosVehiculoProvider(widget.vehiculoId));
-    final isWide = MediaQuery.of(context).size.width > 800;
 
     return Scaffold(
       appBar: AppBar(
@@ -131,7 +187,7 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
           ),
         ),
         data: (data) {
-          _initPrecios(data.repuestosDisponibles);
+          _initSeleccion(data.repuestosDisponibles);
 
           if (data.repuestosDisponibles.isEmpty) {
             return Center(
@@ -147,7 +203,7 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Todos los repuestos de este vehículo ya fueron vendidos o no están disponibles.',
+                    'Todos los repuestos ya fueron vendidos o no están disponibles.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                   ),
@@ -156,528 +212,258 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
             );
           }
 
-          return isWide
-              ? Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: _buildRepuestosPanel(data),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                      flex: 2,
-                      child: _buildResumenPanel(data),
-                    ),
-                  ],
-                )
-              : _buildMobileView(data);
+          return _buildBody(data);
         },
       ),
     );
   }
 
-  // ── Vista Móvil ──
-  Widget _buildMobileView(_VehiculoVentaData data) {
-    return Column(
+  Widget _buildBody(_VehiculoVentaData data) {
+    final repuestos = data.repuestosDisponibles;
+    final totalSugerido = repuestos
+        .where((r) => _seleccionados[r.id] == true)
+        .fold<double>(0, (s, r) => s + (r.precioSugerido ?? 0));
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 32),
       children: [
-        // Info del vehículo compacta
+        // ── Info del vehículo ──
         _VehiculoHeader(vehiculo: data.vehiculo),
 
-        // Resumen flotante
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        // ── Precio global ──
+        Card(
+          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
           color: Theme.of(context).colorScheme.primaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Precio de venta del vehículo',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$_cantidadSeleccionados repuestos seleccionados'
+                  '${totalSugerido > 0 ? ' · Ref. sugerido: \$${totalSugerido.toStringAsFixed(2)}' : ''}',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _precioGlobalCtrl,
+                  decoration: const InputDecoration(
+                    prefixText: '\$ ',
+                    labelText: 'Precio total de venta',
+                    hintText: '0.00',
+                    border: OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold),
+                  onChanged: (v) {
+                    setState(() {
+                      _precioGlobal = double.tryParse(v) ?? 0;
+                    });
+                  },
+                ),
+                if (_precioGlobal > 0 && totalSugerido > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      _precioGlobal >= totalSugerido
+                          ? '↑ ${((_precioGlobal / totalSugerido - 1) * 100).toStringAsFixed(1)}% sobre precio sugerido'
+                          : '↓ ${((1 - _precioGlobal / totalSugerido) * 100).toStringAsFixed(1)}% bajo precio sugerido',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _precioGlobal >= totalSugerido
+                            ? Colors.green[700]
+                            : Colors.orange[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
+        // ── Datos del cliente ──
+        Card(
+          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Datos de la venta',
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _clienteNombreCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre del cliente',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _clienteTelefonoCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Teléfono del cliente',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.phone),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: _metodoPago,
+                    decoration: const InputDecoration(
+                      labelText: 'Método de pago',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.payment),
+                    ),
+                    items: AppConstants.metodosPago
+                        .map(
+                            (m) => DropdownMenuItem(value: m, child: Text(m)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _metodoPago = v!),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _notasCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Notas',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.notes),
+                    ),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // ── Repuestos incluidos ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 4),
           child: Row(
             children: [
-              Text(
-                '$_cantidadSeleccionados de ${data.repuestosDisponibles.length} seleccionados',
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-              ),
+              const Text('Repuestos incluidos',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               const Spacer(),
-              Text(
-                'Total: \$${_total.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
+              TextButton.icon(
+                onPressed: () => _toggleSelectAll(repuestos),
+                icon: Icon(
+                    _selectAll ? Icons.deselect : Icons.select_all,
+                    size: 18),
+                label:
+                    Text(_selectAll ? 'Deseleccionar' : 'Seleccionar todo',
+                        style: const TextStyle(fontSize: 13)),
               ),
             ],
           ),
         ),
 
-        // Lista de repuestos
-        Expanded(
-          child: _buildRepuestosList(data.repuestosDisponibles),
-        ),
-
-        // Botón finalizar fijo
-        _buildBottomBar(data),
-      ],
-    );
-  }
-
-  // ── Panel izquierdo: repuestos ──
-  Widget _buildRepuestosPanel(_VehiculoVentaData data) {
-    return Column(
-      children: [
-        _VehiculoHeader(vehiculo: data.vehiculo),
-        _buildToolbar(data.repuestosDisponibles),
-        Expanded(child: _buildRepuestosList(data.repuestosDisponibles)),
-      ],
-    );
-  }
-
-  Widget _buildToolbar(List<Repuesto> repuestos) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          Text(
-            '${repuestos.length} repuestos disponibles',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: () => _toggleSelectAll(repuestos),
-            icon: Icon(
-              _selectAll ? Icons.deselect : Icons.select_all,
-              size: 18,
-            ),
-            label: Text(_selectAll ? 'Deseleccionar todo' : 'Seleccionar todo'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRepuestosList(List<Repuesto> repuestos) {
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      itemCount: repuestos.length + 1, // +1 for select all header on mobile
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          // Toolbar on mobile
-          return _buildToolbar(repuestos);
-        }
-        final r = repuestos[index - 1];
-        final seleccionado = _seleccionados[r.id] ?? true;
-        final precio = _precios[r.id] ?? 0;
-        final sinPrecio = seleccionado && precio <= 0;
-
-        return Card(
-          color: sinPrecio
-              ? Colors.red.shade50
-              : seleccionado
-                  ? null
-                  : Colors.grey.shade100,
-          child: CheckboxListTile(
-            value: seleccionado,
-            onChanged: (v) {
-              setState(() => _seleccionados[r.id] = v ?? false);
-            },
+        // Lista de repuestos (checkboxes)
+        ...repuestos.map((r) {
+          final sel = _seleccionados[r.id] ?? true;
+          return CheckboxListTile(
+            value: sel,
+            dense: true,
+            onChanged: (v) => setState(() => _seleccionados[r.id] = v!),
             secondary: CircleAvatar(
-              backgroundColor: seleccionado
+              radius: 16,
+              backgroundColor: sel
                   ? Colors.green.withValues(alpha: 0.15)
-                  : Colors.grey.withValues(alpha: 0.15),
-              child: Icon(
-                Icons.build,
-                color: seleccionado ? Colors.green : Colors.grey,
-                size: 20,
-              ),
+                  : Colors.grey.withValues(alpha: 0.1),
+              child: Icon(Icons.build, size: 16,
+                  color: sel ? Colors.green : Colors.grey),
             ),
             title: Text(
               r.parteNombre ?? 'Sin nombre',
               style: TextStyle(
-                fontWeight: FontWeight.w600,
                 fontSize: 14,
-                color: seleccionado ? null : Colors.grey,
-                decoration: seleccionado ? null : TextDecoration.lineThrough,
+                fontWeight: FontWeight.w500,
+                color: sel ? null : Colors.grey,
+                decoration: sel ? null : TextDecoration.lineThrough,
               ),
             ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (r.parteCategoria != null)
-                  Text(r.parteCategoria!,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                if (r.ubicacionNombre != null)
-                  Text('📍 ${r.ubicacionNombre}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                const SizedBox(height: 4),
-                // Campo precio editable
-                SizedBox(
-                  width: 120,
-                  child: TextFormField(
-                    initialValue: precio > 0 ? precio.toStringAsFixed(2) : '',
-                    decoration: InputDecoration(
-                      prefixText: '\$ ',
-                      isDense: true,
-                      hintText: '0.00',
-                      labelText: 'Precio',
-                      border: const OutlineInputBorder(),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 8),
-                      enabledBorder: sinPrecio
-                          ? const OutlineInputBorder(
-                              borderSide:
-                                  BorderSide(color: Colors.red, width: 2),
-                            )
-                          : null,
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    enabled: seleccionado,
-                    onChanged: (v) {
-                      setState(() {
-                        _precios[r.id] = double.tryParse(v) ?? 0;
-                      });
-                    },
-                  ),
-                ),
-                if (sinPrecio)
-                  const Text(
-                    'Ingrese un precio de venta',
-                    style: TextStyle(color: Colors.red, fontSize: 11),
-                  ),
-              ],
+            subtitle: Text(
+              [
+                if (r.parteCategoria != null) r.parteCategoria!,
+                if (r.ubicacionNombre != null) r.ubicacionNombre!,
+                if (r.precioSugerido != null && r.precioSugerido! > 0)
+                  'Sug. \$${r.precioSugerido!.toStringAsFixed(2)}',
+              ].join(' · '),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
-          ),
-        );
-      },
-    );
-  }
+          );
+        }),
 
-  // ── Panel derecho: resumen + cliente ──
-  Widget _buildResumenPanel(_VehiculoVentaData data) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Título
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: Theme.of(context).colorScheme.primaryContainer,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Resumen de Venta',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '$_cantidadSeleccionados de ${data.repuestosDisponibles.length} repuestos seleccionados',
-                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        ),
+        const SizedBox(height: 16),
 
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              // Total destacado
-              Card(
-                color: Colors.green.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('TOTAL',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 18)),
-                      Text(
-                        '\$${_total.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 24,
-                          color: Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Formulario cliente
-              Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    TextFormField(
-                      controller: _clienteNombreCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre del cliente',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.person),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _clienteTelefonoCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Teléfono del cliente',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.phone),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: _metodoPago,
-                      decoration: const InputDecoration(
-                        labelText: 'Método de pago',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.payment),
-                      ),
-                      items: AppConstants.metodosPago
-                          .map((m) =>
-                              DropdownMenuItem(value: m, child: Text(m)))
-                          .toList(),
-                      onChanged: (v) => setState(() => _metodoPago = v!),
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _notasCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Notas',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.notes),
-                      ),
-                      maxLines: 2,
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Aviso precio
-              if (_tienePreciosCero)
-                Card(
-                  color: Colors.orange.shade50,
-                  child: const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.warning_amber,
-                            color: Colors.orange, size: 20),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Todos los artículos seleccionados deben tener un precio mayor a \$0',
-                            style:
-                                TextStyle(color: Colors.orange, fontSize: 13),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              const SizedBox(height: 16),
-
-              // Botón confirmar
-              FilledButton.icon(
-                onPressed: _saving ||
-                        _cantidadSeleccionados == 0 ||
-                        _tienePreciosCero
+        // ── Botón confirmar ──
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: FilledButton.icon(
+            onPressed:
+                _saving || _cantidadSeleccionados == 0 || _precioGlobal <= 0
                     ? null
-                    : _finalizarVenta,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.check),
-                label: Text(
-                    'Confirmar Venta ($_cantidadSeleccionados repuestos)'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ],
+                    : () => _finalizarVenta(repuestos),
+            icon: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.sell),
+            label: Text(
+              _precioGlobal > 0
+                  ? 'Vender $_cantidadSeleccionados repuestos por \$${_precioGlobal.toStringAsFixed(2)}'
+                  : 'Ingrese el precio de venta',
+            ),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              minimumSize: const Size(double.infinity, 52),
+            ),
           ),
         ),
       ],
     );
   }
 
-  // ── Barra inferior móvil ──
-  Widget _buildBottomBar(_VehiculoVentaData data) {
-    return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_tienePreciosCero)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning_amber, color: Colors.orange, size: 16),
-                    SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        'Todos los seleccionados deben tener precio > \$0',
-                        style: TextStyle(color: Colors.orange, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            FilledButton.icon(
-              onPressed: _saving ||
-                      _cantidadSeleccionados == 0 ||
-                      _tienePreciosCero
-                  ? null
-                  : () => _mostrarDatosCliente(data),
-              icon: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.shopping_cart_checkout),
-              label: Text(
-                'Vender $_cantidadSeleccionados repuestos — \$${_total.toStringAsFixed(2)}',
-              ),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                minimumSize: const Size(double.infinity, 48),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Diálogo de datos del cliente (móvil) ──
-  Future<void> _mostrarDatosCliente(_VehiculoVentaData data) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Datos de la Venta'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Resumen
-                Card(
-                  color: Colors.green.shade50,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('$_cantidadSeleccionados repuestos'),
-                        Text(
-                          '\$${_total.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 20,
-                            color: Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _clienteNombreCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre del cliente',
-                    isDense: true,
-                    prefixIcon: Icon(Icons.person),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _clienteTelefonoCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Teléfono del cliente',
-                    isDense: true,
-                    prefixIcon: Icon(Icons.phone),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _metodoPago,
-                  decoration: const InputDecoration(
-                    labelText: 'Método de pago',
-                    isDense: true,
-                    prefixIcon: Icon(Icons.payment),
-                  ),
-                  items: AppConstants.metodosPago
-                      .map(
-                          (m) => DropdownMenuItem(value: m, child: Text(m)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _metodoPago = v!),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _notasCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Notas',
-                    isDense: true,
-                    prefixIcon: Icon(Icons.notes),
-                  ),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirmar Venta'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok == true) {
-      _finalizarVenta();
-    }
-  }
-
   // ── Ejecutar venta ──
-  Future<void> _finalizarVenta() async {
-    if (_cantidadSeleccionados == 0) return;
+  Future<void> _finalizarVenta(List<Repuesto> repuestos) async {
+    if (_cantidadSeleccionados == 0 || _precioGlobal <= 0) return;
 
-    // Confirmar
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirmar venta'),
-        content: Text(
-          '¿Vender $_cantidadSeleccionados repuestos por \$${_total.toStringAsFixed(2)}?',
+        title: const Text('Confirmar venta de vehículo'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '¿Vender $_cantidadSeleccionados repuestos por \$${_precioGlobal.toStringAsFixed(2)}?',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Los precios se distribuirán proporcionalmente en los detalles de la venta.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -701,28 +487,28 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
       final auth = ref.read(authProvider);
       final vendedorId = auth.perfil!.id;
 
-      // Construir lista de items seleccionados
-      final items = _seleccionados.entries
-          .where((e) => e.value)
-          .map((e) => {
-                'repuesto_id': e.key,
-                'precio': _precios[e.key] ?? 0,
-              })
-          .toList();
+      // Distribuir precio global proporcionalmente
+      final items = _distribuirPrecios(repuestos);
 
-      // Usar la misma RPC atómica existente
+      if (items.isEmpty) {
+        throw Exception('No hay repuestos seleccionados');
+      }
+
+      // Recalcular total real (puede diferir ligeramente por redondeo)
+      final totalReal =
+          items.fold<double>(0, (s, i) => s + (i['precio'] as double));
+
       await supabase.rpc('registrar_venta', params: {
         'p_vendedor_id': vendedorId,
         'p_cliente_nombre': _clienteNombreCtrl.text,
         'p_cliente_telefono': _clienteTelefonoCtrl.text,
         'p_metodo_pago': _metodoPago,
-        'p_total': _total,
+        'p_total': totalReal,
         'p_notas':
             'Venta vehículo completo${_notasCtrl.text.isNotEmpty ? ': ${_notasCtrl.text}' : ''}',
         'p_items': items,
       });
 
-      // Invalidar providers
       ref.invalidate(_repuestosVehiculoProvider(widget.vehiculoId));
       ref.invalidate(vehiculoDetalleProvider(widget.vehiculoId));
       ref.invalidate(ventasProvider);
@@ -731,7 +517,7 @@ class _VentaVehiculoScreenState extends ConsumerState<VentaVehiculoScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Venta registrada: $_cantidadSeleccionados repuestos por \$${_total.toStringAsFixed(2)}'),
+                'Venta registrada: $_cantidadSeleccionados repuestos por \$${_precioGlobal.toStringAsFixed(2)}'),
             backgroundColor: Colors.green,
           ),
         );
